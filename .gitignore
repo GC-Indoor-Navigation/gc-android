@@ -1,0 +1,40 @@
+# Gradle / Android build output
+.gradle/
+.gradle-user-home/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local Android / SDK configuration
+local.properties
+.android-user-home/
+
+# IDE local state
+*.iml
+.idea/
+.kotlin/
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+
+# Generated APK / bundle artifacts
+*.apk
+*.ap_
+*.aab
+
+# Signing and secrets
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+google-services.json
+
+# OS files
+.DS_Store
+Thumbs.db
