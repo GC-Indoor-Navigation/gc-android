@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 data class CameraCaptureSettings(
     val cameraId: String = "camera_01",
     val deviceId: String = "android_device_001",
-    val serverUrl: String = "http://localhost:8080/frames",
+    val serverUrl: String = "localhost:50051",
     val resolution: ResolutionOption = ResolutionOption.HD,
     val fpsTarget: Int = 10,
     val focusMode: String = "unknown",

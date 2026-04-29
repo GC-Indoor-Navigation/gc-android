@@ -45,10 +45,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,8 +74,14 @@ import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.ResolutionOption
+import com.gc.collector.network.GrpcFrameSender
+import com.gc.collector.network.SendResult
+import com.gc.collector.network.parseGrpcEndpoint
 import com.gc.collector.ui.camera.CameraPreview
 import com.gc.collector.ui.theme.GcandroidTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val fpsOptions = listOf(5, 10, 15, 30)
 
@@ -103,6 +111,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
     var detailsPanelOpen by rememberSaveable { mutableStateOf(false) }
     var lastFpsWindowStartedNs by remember { mutableStateOf<Long?>(null) }
     var framesInCurrentWindow by remember { mutableStateOf(0) }
+    var networkStatus by rememberSaveable { mutableStateOf("gRPC disconnected") }
+    val frameSender = remember { GrpcFrameSender() }
+    val coroutineScope = rememberCoroutineScope()
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
@@ -126,8 +137,16 @@ fun MainScreen(modifier: Modifier = Modifier) {
     }
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !detailsPanelOpen) {
+        frameSender.stop()
         currentScreenName = CollectorScreen.CameraSetup.name
         uiState = uiState.copy(isCapturing = false)
+        networkStatus = "gRPC stopped"
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            frameSender.stop()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -230,6 +249,40 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             currentFps = fps,
                         ),
                     )
+
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val sendResult = frameSender.send(frame)
+                        withContext(Dispatchers.Main) {
+                            when (sendResult) {
+                                SendResult.Sent -> {
+                                    uiState = uiState.copy(
+                                        stats = uiState.stats.copy(
+                                            sentCount = uiState.stats.sentCount + 1L,
+                                        ),
+                                    )
+                                    networkStatus = "gRPC streaming"
+                                }
+
+                                is SendResult.Failed -> {
+                                    uiState = uiState.copy(
+                                        stats = uiState.stats.copy(
+                                            failedCount = uiState.stats.failedCount + 1L,
+                                        ),
+                                    )
+                                    networkStatus = sendResult.message
+                                }
+
+                                SendResult.NotStarted -> {
+                                    uiState = uiState.copy(
+                                        stats = uiState.stats.copy(
+                                            droppedFrames = uiState.stats.droppedFrames + 1L,
+                                        ),
+                                    )
+                                    networkStatus = "gRPC stream not started"
+                                }
+                            }
+                        }
+                    }
                 }
             },
             onCameraReady = {
@@ -247,17 +300,50 @@ fun MainScreen(modifier: Modifier = Modifier) {
             onStart = {
                 val nowMs = System.currentTimeMillis()
                 val nowNs = SystemClock.elapsedRealtimeNanos()
-                uiState = uiState.copy(
-                    isCapturing = true,
-                    stats = stats.copy(
-                        frameSequence = 0L,
-                        lastDeviceTimestampMs = nowMs,
-                        lastDeviceMonotonicNs = nowNs,
-                    ),
-                )
+                parseGrpcEndpoint(settings.serverUrl)
+                    .onSuccess { endpoint ->
+                        runCatching {
+                            frameSender.start(
+                                host = endpoint.host,
+                                port = endpoint.port,
+                                usePlaintext = endpoint.usePlaintext,
+                            )
+                        }.onSuccess {
+                            networkStatus = "gRPC connected to ${endpoint.host}:${endpoint.port}"
+                            uiState = uiState.copy(
+                                isCapturing = true,
+                                stats = stats.copy(
+                                    frameSequence = 0L,
+                                    lastDeviceTimestampMs = nowMs,
+                                    lastDeviceMonotonicNs = nowNs,
+                                    sentCount = 0L,
+                                    failedCount = 0L,
+                                    droppedFrames = 0L,
+                                    currentFps = 0f,
+                                ),
+                            )
+                            lastFpsWindowStartedNs = null
+                            framesInCurrentWindow = 0
+                        }.onFailure { error ->
+                            networkStatus = error.message ?: "Failed to start gRPC stream"
+                            uiState = uiState.copy(
+                                isCapturing = false,
+                                stats = stats.copy(failedCount = stats.failedCount + 1L),
+                            )
+                        }
+                    }
+                    .onFailure { error ->
+                        networkStatus = error.message ?: "Invalid gRPC endpoint"
+                        uiState = uiState.copy(
+                            isCapturing = false,
+                            stats = stats.copy(failedCount = stats.failedCount + 1L),
+                        )
+                    }
             },
             onStop = {
+                frameSender.stop()
                 uiState = uiState.copy(isCapturing = false)
+                networkStatus = "gRPC stopped"
             },
             onToggleDetails = {
                 detailsPanelOpen = !detailsPanelOpen
@@ -284,6 +370,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 stats = stats,
                 isCapturing = uiState.isCapturing,
                 cameraStatus = cameraStatus,
+                networkStatus = networkStatus,
                 isLandscape = true,
                 includeSettings = false,
                 onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
@@ -307,6 +394,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     stats = stats,
                     isCapturing = uiState.isCapturing,
                     cameraStatus = cameraStatus,
+                    networkStatus = networkStatus,
                     isLandscape = false,
                     includeSettings = false,
                     onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
@@ -466,6 +554,7 @@ private fun SlideDetailsPanel(
     stats: CaptureStats,
     isCapturing: Boolean,
     cameraStatus: String,
+    networkStatus: String,
     isLandscape: Boolean,
     includeSettings: Boolean,
     onSettingsChange: (CameraCaptureSettings) -> Unit,
@@ -502,6 +591,7 @@ private fun SlideDetailsPanel(
                 stats = stats,
                 isCapturing = isCapturing,
                 cameraStatus = cameraStatus,
+                networkStatus = networkStatus,
                 initiallyExpanded = true,
             )
         }
@@ -647,7 +737,7 @@ private fun SettingsPanel(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isCapturing,
                     singleLine = true,
-                    label = { Text("Server URL") },
+                    label = { Text("gRPC endpoint") },
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -953,6 +1043,7 @@ private fun StatusPanel(
     stats: CaptureStats,
     isCapturing: Boolean,
     cameraStatus: String,
+    networkStatus: String,
     initiallyExpanded: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -995,6 +1086,7 @@ private fun StatusPanel(
             if (expanded) {
                 StatusRow("Capture", if (isCapturing) "running" else "stopped")
                 StatusRow("Camera", cameraStatus)
+                StatusRow("Network", networkStatus)
                 StatusRow("Frame sequence", stats.frameSequence.toString())
                 StatusRow("Last timestamp ms", stats.lastDeviceTimestampMs?.toString() ?: "-")
                 StatusRow("Last monotonic ns", stats.lastDeviceMonotonicNs?.toString() ?: "-")

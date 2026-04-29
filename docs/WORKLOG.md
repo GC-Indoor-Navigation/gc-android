@@ -425,7 +425,41 @@ BUILD SUCCESSFUL
 남은 주요 작업:
 
 - 실제 Camera2 적용 상태 확인 및 기록
-- HTTP multipart 전송
-- 서버 응답 기반 sent/failed 카운트 갱신
+- gRPC 서버 ingest 구현
+- 실제 서버와 end-to-end 수신 테스트
 - 마지막 전송 시각 표시
 - 네트워크 실패 처리
+
+### 20. gRPC Android client 구현
+
+서버 전송 방향을 HTTP가 아니라 gRPC client streaming으로 확정했다.
+
+추가한 항목:
+
+- `app/src/main/proto/frame_ingest.proto`
+- `FrameSender`
+- `GrpcFrameSender`
+- `FrameIngestServiceGrpc`
+- `FrameIngestMessages`
+- `FramePacketMapper`
+- `GrpcEndpoint`
+
+구현 내용:
+
+- `FrameIngestService.StreamFrames` client streaming 호출을 Android 앱에서 시작한다.
+- Start 버튼을 누르면 서버 주소를 파싱하고 gRPC stream을 연다.
+- 캡처 중인 각 `CapturedFrame`을 metadata + JPEG packet으로 전송한다.
+- Stop 버튼이나 카메라 화면 뒤로가기를 누르면 stream을 종료한다.
+- Status 패널에서 network 상태, sent count, failed count, drop count를 확인할 수 있다.
+
+구현 방식:
+
+- Android Gradle Plugin 9.1 환경에서 protobuf Gradle plugin이 호환되지 않아 codegen을 사용하지 않았다.
+- 대신 `frame_ingest.proto`는 서버와 공유할 API 계약으로 유지한다.
+- Android 앱 내부에서는 `MethodDescriptor`와 protobuf wire encoding을 직접 구성한다.
+
+현재 빌드 상태:
+
+```text
+BUILD SUCCESSFUL
+```
