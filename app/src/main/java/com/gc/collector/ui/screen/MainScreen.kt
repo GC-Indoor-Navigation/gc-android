@@ -1165,27 +1165,35 @@ private fun StatusPanel(
 
                 StatusSection(title = "Camera Controls") {
                     StatusRow("Focus mode", settings.focusMode)
-                    StatusRow("Focus lock", settings.focusLocked.toRequestSummary(
-                        support = controlStatus.focusLockSupported,
+                    ControlStatusRows(
+                        label = "Focus lock",
+                        requested = settings.focusLocked,
+                        supported = controlStatus.focusLockSupported,
                         applied = controlStatus.focusLockApplied,
-                    ))
-                    StatusRow("Exposure lock", settings.exposureLocked.toRequestSummary(
-                        support = controlStatus.exposureLockSupported,
+                    )
+                    ControlStatusRows(
+                        label = "Exposure lock",
+                        requested = settings.exposureLocked,
+                        supported = controlStatus.exposureLockSupported,
                         applied = controlStatus.exposureLockApplied,
-                    ))
-                    StatusRow("White balance lock", settings.whiteBalanceLocked.toRequestSummary(
-                        support = controlStatus.whiteBalanceLockSupported,
+                    )
+                    ControlStatusRows(
+                        label = "White balance lock",
+                        requested = settings.whiteBalanceLocked,
+                        supported = controlStatus.whiteBalanceLockSupported,
                         applied = controlStatus.whiteBalanceLockApplied,
-                    ))
+                    )
                     StatusRow("Zoom disabled", settings.zoomDisabled.toString())
                     StatusRow("Orientation", "${settings.orientationDeg} deg")
                 }
 
                 StatusSection(title = "Manual Exposure") {
-                    StatusRow("Manual exposure", settings.manualExposureEnabled.toRequestSummary(
-                        support = controlStatus.manualExposureSupported,
+                    ControlStatusRows(
+                        label = "Manual exposure",
+                        requested = settings.manualExposureEnabled,
+                        supported = controlStatus.manualExposureSupported,
                         applied = controlStatus.manualExposureApplied,
-                    ))
+                    )
                     StatusRow("ISO req / applied", "${settings.iso} / ${controlStatus.isoApplied ?: "-"}")
                     StatusRow(
                         "Shutter ns req / applied",
@@ -1203,6 +1211,18 @@ private fun StatusPanel(
             }
         }
     }
+}
+
+@Composable
+private fun ControlStatusRows(
+    label: String,
+    requested: Boolean,
+    supported: Boolean?,
+    applied: Boolean?,
+) {
+    StatusRow("$label requested", if (requested) "yes" else "no")
+    StatusRow("$label supported", supported.toMetadataState())
+    StatusRow("$label applied", applied.toAppliedState())
 }
 
 @Composable
@@ -1289,14 +1309,6 @@ private fun CameraCaptureSettings.summaryText(): String {
 private fun CaptureStats.summaryText(isCapturing: Boolean): String {
     val state = if (isCapturing) "running" else "stopped"
     return "$state, seq $frameSequence, ${"%.1f".format(currentFps)} FPS"
-}
-
-private fun Boolean.toRequestSummary(
-    support: Boolean?,
-    applied: Boolean?,
-): String {
-    val requested = if (this) "requested" else "not_requested"
-    return "$requested / ${support.toMetadataState()} / ${applied.toAppliedState()}"
 }
 
 private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
