@@ -2,8 +2,11 @@ package com.gc.collector.ui.camera
 
 import android.content.Context
 import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.TotalCaptureResult
 import android.util.Range
 import android.util.Size
 import android.view.Surface
@@ -20,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -54,6 +58,7 @@ fun CameraPreview(
         }
     }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
+    val currentControlStatus = rememberUpdatedState(controlStatus)
 
     LaunchedEffect(
         context,
@@ -62,7 +67,6 @@ fun CameraPreview(
         isAnalyzing,
         settings,
         nextFrameSequence,
-        controlStatus,
         onFrameCaptured,
         onCameraControlStatus,
     ) {
@@ -71,8 +75,29 @@ fun CameraPreview(
             {
                 runCatching {
                     val cameraProvider = cameraProviderFuture.get()
+                    var lastControlStatus: CameraControlStatus? = null
+                    val captureCallback = object : CameraCaptureSession.CaptureCallback() {
+                        override fun onCaptureCompleted(
+                            session: CameraCaptureSession,
+                            request: CaptureRequest,
+                            result: TotalCaptureResult,
+                        ) {
+                            val previousStatus = lastControlStatus ?: return
+                            val updatedStatus = previousStatus.withCaptureResult(
+                                settings = settings,
+                                result = result,
+                            )
+                            if (updatedStatus != previousStatus) {
+                                lastControlStatus = updatedStatus
+                                onCameraControlStatus(updatedStatus)
+                            }
+                        }
+                    }
                     val previewBuilder = Preview.Builder()
-                    previewBuilder.applyCaptureSettings(settings)
+                    previewBuilder.applyCaptureSettings(
+                        settings = settings,
+                        captureCallback = captureCallback,
+                    )
                     val preview = previewBuilder.build().also {
                         it.surfaceProvider = previewView.surfaceProvider
                     }
@@ -86,7 +111,7 @@ fun CameraPreview(
                                     if (isAnalyzing) {
                                         val metadata = FrameMetadataFactory.create(
                                             settings = settings,
-                                            controlStatus = controlStatus,
+                                            controlStatus = currentControlStatus.value,
                                             frameSequence = nextFrameSequence(),
                                             width = imageProxy.width,
                                             height = imageProxy.height,
@@ -116,7 +141,9 @@ fun CameraPreview(
                     if (settings.zoomDisabled) {
                         camera.cameraControl.setZoomRatio(1.0f)
                     }
-                    onCameraControlStatus(camera.cameraInfo.readControlStatus(settings))
+                    val cameraControlStatus = camera.cameraInfo.readControlStatus(settings)
+                    lastControlStatus = cameraControlStatus
+                    onCameraControlStatus(cameraControlStatus)
                     onCameraReady()
                 }.onFailure { error ->
                     onCameraError(error.message ?: "Failed to bind camera preview")
@@ -140,11 +167,15 @@ fun CameraPreview(
     }
 }
 
-private fun Preview.Builder.applyCaptureSettings(settings: CameraCaptureSettings) {
+private fun Preview.Builder.applyCaptureSettings(
+    settings: CameraCaptureSettings,
+    captureCallback: CameraCaptureSession.CaptureCallback,
+) {
     setTargetResolution(settings.resolution.toSize())
     setTargetRotation(settings.orientationDeg.toSurfaceRotation())
     Camera2Interop.Extender(this).apply {
         applyCommonCaptureSettings(settings)
+        setSessionCaptureCallback(captureCallback)
     }
 }
 
@@ -200,6 +231,36 @@ private fun androidx.camera.core.CameraInfo.readControlStatus(settings: CameraCa
             CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR,
         ),
         zoomSupported = maxDigitalZoom != null && maxDigitalZoom >= 1.0f,
+    )
+}
+
+private fun CameraControlStatus.withCaptureResult(
+    settings: CameraCaptureSettings,
+    result: TotalCaptureResult,
+): CameraControlStatus {
+    val request = result.request
+    val afMode = request.get(CaptureRequest.CONTROL_AF_MODE)
+    val aeLock = request.get(CaptureRequest.CONTROL_AE_LOCK)
+    val awbLock = request.get(CaptureRequest.CONTROL_AWB_LOCK)
+    val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+    val awbState = result.get(CaptureResult.CONTROL_AWB_STATE)
+
+    return copy(
+        focusLockApplied = if (settings.focusLocked) {
+            afMode == CaptureRequest.CONTROL_AF_MODE_OFF
+        } else {
+            afMode == CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+        },
+        exposureLockApplied = if (settings.exposureLocked) {
+            aeLock == true && (aeState == CaptureResult.CONTROL_AE_STATE_LOCKED || aeState == null)
+        } else {
+            aeLock == false || aeLock == null
+        },
+        whiteBalanceLockApplied = if (settings.whiteBalanceLocked) {
+            awbLock == true && (awbState == CaptureResult.CONTROL_AWB_STATE_LOCKED || awbState == null)
+        } else {
+            awbLock == false || awbLock == null
+        },
     )
 }
 

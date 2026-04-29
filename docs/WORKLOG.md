@@ -464,6 +464,32 @@ BUILD SUCCESSFUL
 BUILD SUCCESSFUL
 ```
 
+### 23. CaptureResult 기반 applied 상태 갱신
+
+카메라 설정 상태 중 `applied` 값을 `unknown`으로만 두지 않도록 Camera2 capture result 콜백을 연결했다.
+
+구현 내용:
+
+- `Camera2Interop.Extender.setSessionCaptureCallback`을 Preview builder에 연결했다.
+- `TotalCaptureResult`와 해당 capture request를 읽어 AF/AE/AWB 적용 상태를 갱신한다.
+- focus lock은 capture request의 `CONTROL_AF_MODE`가 요청한 모드로 들어갔는지 확인한다.
+- exposure lock은 `CONTROL_AE_LOCK` 요청과 `CONTROL_AE_STATE_LOCKED` 상태를 기준으로 확인한다.
+- white balance lock은 `CONTROL_AWB_LOCK` 요청과 `CONTROL_AWB_STATE_LOCKED` 상태를 기준으로 확인한다.
+- `controlStatus` 변경이 CameraX 재바인딩을 반복하지 않도록 `LaunchedEffect` key에서 제외했다.
+- frame metadata 생성 시 최신 `CameraControlStatus`를 참조하도록 `rememberUpdatedState`를 사용했다.
+
+현재 한계:
+
+- CaptureResult가 기기마다 일부 state 값을 늦게 주거나 null로 줄 수 있다.
+- AE/AWB는 lock 요청 직후 몇 프레임 동안 `not_applied` 또는 `unknown`처럼 보일 수 있다.
+- manual ISO / shutter time 적용 상태는 아직 확인하지 않는다.
+
+현재 빌드 상태:
+
+```text
+BUILD SUCCESSFUL
+```
+
 ### 21. 카메라 촬영 조건 고정 구현 점검
 
 내부표정요소/외부표정요소 추정과 indoor navigation 구축을 위해 카메라 촬영 조건이 프레임마다 흔들리지 않도록 현재 구현을 점검했다.
