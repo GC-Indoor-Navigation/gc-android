@@ -37,6 +37,13 @@ object FrameMetadataFactory {
             fpsTargetSupport = controlStatus.fpsTargetSupported.toMetadataState(),
             resolutionSupport = controlStatus.resolutionSupported.toMetadataState(),
             manualExposureSupport = controlStatus.manualExposureSupported.toMetadataState(),
+            manualExposureRequested = settings.manualExposureEnabled,
+            manualExposureApplied = controlStatus.manualExposureApplied.toAppliedState(),
+            isoRequested = settings.iso,
+            isoApplied = controlStatus.isoApplied,
+            exposureTimeNsRequested = settings.exposureTimeNs,
+            exposureTimeNsApplied = controlStatus.exposureTimeNsApplied,
+            focalLengthMm = controlStatus.focalLengthMm,
         )
     }
 }

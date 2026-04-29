@@ -15,6 +15,9 @@ data class CameraCaptureSettings(
     val whiteBalanceLocked: Boolean = false,
     val zoomDisabled: Boolean = true,
     val orientationDeg: Int = 90,
+    val manualExposureEnabled: Boolean = false,
+    val iso: Int = 400,
+    val exposureTimeNs: Long = 10_000_000L,
 )
 
 @Serializable

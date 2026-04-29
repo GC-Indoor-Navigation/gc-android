@@ -34,6 +34,13 @@ fun CapturedFrame.toFramePacket(): GrpcFramePacket {
             fpsTargetSupport = source.fpsTargetSupport,
             resolutionSupport = source.resolutionSupport,
             manualExposureSupport = source.manualExposureSupport,
+            manualExposureRequested = source.manualExposureRequested,
+            manualExposureApplied = source.manualExposureApplied,
+            isoRequested = source.isoRequested,
+            isoApplied = source.isoApplied,
+            exposureTimeNsRequested = source.exposureTimeNsRequested,
+            exposureTimeNsApplied = source.exposureTimeNsApplied,
+            focalLengthMm = source.focalLengthMm,
         ),
         jpegBytes = jpegBytes,
     )

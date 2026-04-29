@@ -188,13 +188,21 @@ private fun ImageAnalysis.Builder.applyCaptureSettings(settings: CameraCaptureSe
 }
 
 private fun Camera2Interop.Extender<*>.applyCommonCaptureSettings(settings: CameraCaptureSettings) {
+    if (settings.manualExposureEnabled) {
+        setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+        setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, settings.iso)
+        setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, settings.exposureTimeNs)
+    } else {
+        setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+    }
+
     if (settings.focusLocked) {
         setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
         setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, 0f)
     } else {
         setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
     }
-    setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, settings.exposureLocked)
+    setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, settings.exposureLocked && !settings.manualExposureEnabled)
     setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(settings.fpsTarget, settings.fpsTarget))
     setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, settings.whiteBalanceLocked)
 }
@@ -212,6 +220,7 @@ private fun androidx.camera.core.CameraInfo.readControlStatus(settings: CameraCa
     val fpsRanges = camera2Info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
     val streamMap = camera2Info.getCameraCharacteristic(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
     val maxDigitalZoom = camera2Info.getCameraCharacteristic(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM)
+    val focalLengths = camera2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
 
     return CameraControlStatus(
         focusLockSupported = afModes.contains(CaptureRequest.CONTROL_AF_MODE_OFF),
@@ -230,6 +239,10 @@ private fun androidx.camera.core.CameraInfo.readControlStatus(settings: CameraCa
         manualExposureSupported = capabilities.contains(
             CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR,
         ),
+        manualExposureApplied = null,
+        isoApplied = null,
+        exposureTimeNsApplied = null,
+        focalLengthMm = focalLengths?.firstOrNull(),
         zoomSupported = maxDigitalZoom != null && maxDigitalZoom >= 1.0f,
     )
 }
@@ -241,9 +254,13 @@ private fun CameraControlStatus.withCaptureResult(
     val request = result.request
     val afMode = request.get(CaptureRequest.CONTROL_AF_MODE)
     val aeLock = request.get(CaptureRequest.CONTROL_AE_LOCK)
+    val aeMode = request.get(CaptureRequest.CONTROL_AE_MODE)
     val awbLock = request.get(CaptureRequest.CONTROL_AWB_LOCK)
     val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
     val awbState = result.get(CaptureResult.CONTROL_AWB_STATE)
+    val isoApplied = result.get(CaptureResult.SENSOR_SENSITIVITY)
+    val exposureTimeNsApplied = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+    val focalLengthMm = result.get(CaptureResult.LENS_FOCAL_LENGTH) ?: focalLengthMm
 
     return copy(
         focusLockApplied = if (settings.focusLocked) {
@@ -252,7 +269,9 @@ private fun CameraControlStatus.withCaptureResult(
             afMode == CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
         },
         exposureLockApplied = if (settings.exposureLocked) {
-            aeLock == true && (aeState == CaptureResult.CONTROL_AE_STATE_LOCKED || aeState == null)
+            !settings.manualExposureEnabled &&
+                aeLock == true &&
+                (aeState == CaptureResult.CONTROL_AE_STATE_LOCKED || aeState == null)
         } else {
             aeLock == false || aeLock == null
         },
@@ -261,6 +280,16 @@ private fun CameraControlStatus.withCaptureResult(
         } else {
             awbLock == false || awbLock == null
         },
+        manualExposureApplied = if (settings.manualExposureEnabled) {
+            aeMode == CaptureRequest.CONTROL_AE_MODE_OFF &&
+                isoApplied == settings.iso &&
+                exposureTimeNsApplied == settings.exposureTimeNs
+        } else {
+            aeMode == CaptureRequest.CONTROL_AE_MODE_ON || aeMode == null
+        },
+        isoApplied = isoApplied,
+        exposureTimeNsApplied = exposureTimeNsApplied,
+        focalLengthMm = focalLengthMm,
     )
 }
 

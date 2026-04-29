@@ -63,6 +63,13 @@ data class GrpcFrameMetadata(
     val fpsTargetSupport: String,
     val resolutionSupport: String,
     val manualExposureSupport: String,
+    val manualExposureRequested: Boolean,
+    val manualExposureApplied: String,
+    val isoRequested: Int,
+    val isoApplied: Int?,
+    val exposureTimeNsRequested: Long,
+    val exposureTimeNsApplied: Long?,
+    val focalLengthMm: Float?,
 ) {
     fun toByteArray(): ByteArray {
         return protoBytes {
@@ -94,6 +101,13 @@ data class GrpcFrameMetadata(
             writeString(26, fpsTargetSupport)
             writeString(27, resolutionSupport)
             writeString(28, manualExposureSupport)
+            writeBool(29, manualExposureRequested)
+            writeString(30, manualExposureApplied)
+            writeInt32(31, isoRequested)
+            isoApplied?.let { writeInt32(32, it) }
+            writeInt64(33, exposureTimeNsRequested)
+            exposureTimeNsApplied?.let { writeInt64(34, it) }
+            focalLengthMm?.let { writeFloat(35, it) }
         }
     }
 }

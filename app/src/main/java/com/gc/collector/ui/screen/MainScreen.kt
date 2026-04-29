@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +65,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -820,11 +822,56 @@ private fun SettingsPanel(
                         title = "Lock exposure",
                         description = "Request AE lock for stable brightness.",
                         checked = settings.exposureLocked,
-                        enabled = !isCapturing,
+                        enabled = !isCapturing && !settings.manualExposureEnabled,
                         onCheckedChange = { checked ->
                             onSettingsChange(settings.copy(exposureLocked = checked))
                         },
                     )
+                    ToggleRow(
+                        title = "Manual exposure",
+                        description = "Turn AE off and request fixed ISO / shutter time.",
+                        checked = settings.manualExposureEnabled,
+                        enabled = !isCapturing,
+                        onCheckedChange = { checked ->
+                            onSettingsChange(
+                                settings.copy(
+                                    manualExposureEnabled = checked,
+                                    exposureLocked = if (checked) false else settings.exposureLocked,
+                                ),
+                            )
+                        },
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = settings.iso.toString(),
+                            onValueChange = { value ->
+                                value.toIntOrNull()?.takeIf { it > 0 }?.let { iso ->
+                                    onSettingsChange(settings.copy(iso = iso))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = !isCapturing && settings.manualExposureEnabled,
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            label = { Text("ISO") },
+                        )
+                        OutlinedTextField(
+                            value = settings.exposureTimeNs.toString(),
+                            onValueChange = { value ->
+                                value.toLongOrNull()?.takeIf { it > 0L }?.let { exposureTimeNs ->
+                                    onSettingsChange(settings.copy(exposureTimeNs = exposureTimeNs))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = !isCapturing && settings.manualExposureEnabled,
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            label = { Text("Shutter ns") },
+                        )
+                    }
                     ToggleRow(
                         title = "Lock white balance",
                         description = "Request AWB lock for stable color.",
@@ -1124,7 +1171,16 @@ private fun StatusPanel(
                 ))
                 StatusRow("FPS target support", controlStatus.fpsTargetSupported.toMetadataState())
                 StatusRow("Resolution support", controlStatus.resolutionSupported.toMetadataState())
-                StatusRow("Manual exposure", controlStatus.manualExposureSupported.toMetadataState())
+                StatusRow("Manual exposure", settings.manualExposureEnabled.toRequestSummary(
+                    support = controlStatus.manualExposureSupported,
+                    applied = controlStatus.manualExposureApplied,
+                ))
+                StatusRow("ISO req / applied", "${settings.iso} / ${controlStatus.isoApplied ?: "-"}")
+                StatusRow(
+                    "Shutter ns req / applied",
+                    "${settings.exposureTimeNs} / ${controlStatus.exposureTimeNsApplied ?: "-"}",
+                )
+                StatusRow("Focal length mm", controlStatus.focalLengthMm?.let { "%.2f".format(it) } ?: "-")
                 StatusRow("Zoom disabled", settings.zoomDisabled.toString())
                 StatusRow("Orientation", "${settings.orientationDeg} deg")
             }
@@ -1186,7 +1242,12 @@ private fun calculateCurrentFps(
 }
 
 private fun CameraCaptureSettings.summaryText(): String {
-    return "${resolution.label}, ${fpsTarget} FPS, $cameraId, $deviceId"
+    val exposure = if (manualExposureEnabled) {
+        "manual ISO $iso"
+    } else {
+        "auto exposure"
+    }
+    return "${resolution.label}, ${fpsTarget} FPS, $exposure, $cameraId, $deviceId"
 }
 
 private fun CaptureStats.summaryText(isCapturing: Boolean): String {
@@ -1218,6 +1279,9 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                 state.settings.whiteBalanceLocked,
                 state.settings.zoomDisabled,
                 state.settings.orientationDeg,
+                state.settings.manualExposureEnabled,
+                state.settings.iso,
+                state.settings.exposureTimeNs,
                 state.stats.frameSequence,
                 state.stats.lastDeviceTimestampMs,
                 state.stats.lastDeviceMonotonicNs,
@@ -1234,6 +1298,10 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                 state.cameraControlStatus.fpsTargetSupported,
                 state.cameraControlStatus.resolutionSupported,
                 state.cameraControlStatus.manualExposureSupported,
+                state.cameraControlStatus.manualExposureApplied,
+                state.cameraControlStatus.isoApplied,
+                state.cameraControlStatus.exposureTimeNsApplied,
+                state.cameraControlStatus.focalLengthMm,
                 state.cameraControlStatus.zoomSupported,
             )
         },
@@ -1252,27 +1320,34 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                     whiteBalanceLocked = values[9] as Boolean,
                     zoomDisabled = values[10] as Boolean,
                     orientationDeg = (values[11] as Number).toInt(),
+                    manualExposureEnabled = values[12] as Boolean,
+                    iso = (values[13] as Number).toInt(),
+                    exposureTimeNs = (values[14] as Number).toLong(),
                 ),
                 stats = CaptureStats(
-                    frameSequence = (values[12] as Number).toLong(),
-                    lastDeviceTimestampMs = (values[13] as Number?)?.toLong(),
-                    lastDeviceMonotonicNs = (values[14] as Number?)?.toLong(),
-                    sentCount = (values[15] as Number).toLong(),
-                    failedCount = (values[16] as Number).toLong(),
-                    droppedFrames = (values[17] as Number).toLong(),
-                    currentFps = (values[18] as Number).toFloat(),
+                    frameSequence = (values[15] as Number).toLong(),
+                    lastDeviceTimestampMs = (values[16] as Number?)?.toLong(),
+                    lastDeviceMonotonicNs = (values[17] as Number?)?.toLong(),
+                    sentCount = (values[18] as Number).toLong(),
+                    failedCount = (values[19] as Number).toLong(),
+                    droppedFrames = (values[20] as Number).toLong(),
+                    currentFps = (values[21] as Number).toFloat(),
                 ),
                 cameraControlStatus = CameraControlStatus(
-                    focusLockSupported = values[19] as Boolean?,
-                    focusLockApplied = values[20] as Boolean?,
-                    exposureLockSupported = values[21] as Boolean?,
-                    exposureLockApplied = values[22] as Boolean?,
-                    whiteBalanceLockSupported = values[23] as Boolean?,
-                    whiteBalanceLockApplied = values[24] as Boolean?,
-                    fpsTargetSupported = values[25] as Boolean?,
-                    resolutionSupported = values[26] as Boolean?,
-                    manualExposureSupported = values[27] as Boolean?,
-                    zoomSupported = values[28] as Boolean?,
+                    focusLockSupported = values[22] as Boolean?,
+                    focusLockApplied = values[23] as Boolean?,
+                    exposureLockSupported = values[24] as Boolean?,
+                    exposureLockApplied = values[25] as Boolean?,
+                    whiteBalanceLockSupported = values[26] as Boolean?,
+                    whiteBalanceLockApplied = values[27] as Boolean?,
+                    fpsTargetSupported = values[28] as Boolean?,
+                    resolutionSupported = values[29] as Boolean?,
+                    manualExposureSupported = values[30] as Boolean?,
+                    manualExposureApplied = values[31] as Boolean?,
+                    isoApplied = (values[32] as Number?)?.toInt(),
+                    exposureTimeNsApplied = (values[33] as Number?)?.toLong(),
+                    focalLengthMm = (values[34] as Number?)?.toFloat(),
+                    zoomSupported = values[35] as Boolean?,
                 ),
             )
         },

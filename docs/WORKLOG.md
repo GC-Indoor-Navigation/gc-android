@@ -464,6 +464,68 @@ BUILD SUCCESSFUL
 BUILD SUCCESSFUL
 ```
 
+### 24. Manual exposure 및 JVM unit test 추가
+
+카메라 밝기 조건을 더 강하게 고정하기 위해 manual exposure 설정을 추가했다.
+
+추가한 설정:
+
+- `manualExposureEnabled`
+- `iso`
+- `exposureTimeNs`
+
+Camera2 요청:
+
+- manual exposure ON
+  - `CONTROL_AE_MODE_OFF`
+  - `SENSOR_SENSITIVITY`
+  - `SENSOR_EXPOSURE_TIME`
+- manual exposure OFF
+  - `CONTROL_AE_MODE_ON`
+- manual exposure ON일 때는 AE lock 요청을 함께 보내지 않도록 처리
+
+CaptureResult 기록:
+
+- `manualExposureApplied`
+- `isoApplied`
+- `exposureTimeNsApplied`
+- `focalLengthMm`
+
+metadata/proto/gRPC packet 확장:
+
+- `manual_exposure_requested`
+- `manual_exposure_applied`
+- `iso_requested`
+- `iso_applied`
+- `exposure_time_ns_requested`
+- `exposure_time_ns_applied`
+- `focal_length_mm`
+
+UI 변경:
+
+- Camera Setup에 Manual exposure 토글 추가
+- ISO 입력 추가
+- Shutter ns 입력 추가
+- Status 패널에 manual exposure, ISO, shutter, focal length 표시
+
+테스트 추가:
+
+- `GrpcEndpointTest`
+- `CameraControlStatusTest`
+- `GrpcFrameMetadataTest`
+
+테스트 전략:
+
+- Android 기기가 없어도 검증 가능한 순수 Kotlin/JVM 로직부터 unit test로 고정한다.
+- Camera2 실제 적용 여부는 기기 의존성이 크므로 이후 instrumented test 또는 실제 디바이스 체크리스트로 분리한다.
+
+검증:
+
+```text
+:app:testDebugUnitTest PASS
+:app:assembleDebug BUILD SUCCESSFUL
+```
+
 ### 23. CaptureResult 기반 applied 상태 갱신
 
 카메라 설정 상태 중 `applied` 값을 `unknown`으로만 두지 않도록 Camera2 capture result 콜백을 연결했다.

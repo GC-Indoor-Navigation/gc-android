@@ -43,6 +43,13 @@ message FrameMetadata {
   string fps_target_support = 26;
   string resolution_support = 27;
   string manual_exposure_support = 28;
+  bool manual_exposure_requested = 29;
+  string manual_exposure_applied = 30;
+  int32 iso_requested = 31;
+  optional int32 iso_applied = 32;
+  int64 exposure_time_ns_requested = 33;
+  optional int64 exposure_time_ns_applied = 34;
+  optional float focal_length_mm = 35;
 }
 
 message StreamFramesResponse {

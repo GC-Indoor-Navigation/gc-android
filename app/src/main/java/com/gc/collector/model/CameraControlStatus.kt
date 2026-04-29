@@ -13,6 +13,10 @@ data class CameraControlStatus(
     val fpsTargetSupported: Boolean? = null,
     val resolutionSupported: Boolean? = null,
     val manualExposureSupported: Boolean? = null,
+    val manualExposureApplied: Boolean? = null,
+    val isoApplied: Int? = null,
+    val exposureTimeNsApplied: Long? = null,
+    val focalLengthMm: Float? = null,
     val zoomSupported: Boolean? = null,
 )
 
