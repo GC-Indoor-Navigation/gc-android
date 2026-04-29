@@ -1165,19 +1165,19 @@ private fun StatusPanel(
 
                 StatusSection(title = "Camera Controls") {
                     StatusRow("Focus mode", settings.focusMode)
-                    ControlStatusRows(
+                    ControlStatusRow(
                         label = "Focus lock",
                         requested = settings.focusLocked,
                         supported = controlStatus.focusLockSupported,
                         applied = controlStatus.focusLockApplied,
                     )
-                    ControlStatusRows(
+                    ControlStatusRow(
                         label = "Exposure lock",
                         requested = settings.exposureLocked,
                         supported = controlStatus.exposureLockSupported,
                         applied = controlStatus.exposureLockApplied,
                     )
-                    ControlStatusRows(
+                    ControlStatusRow(
                         label = "White balance lock",
                         requested = settings.whiteBalanceLocked,
                         supported = controlStatus.whiteBalanceLockSupported,
@@ -1188,7 +1188,7 @@ private fun StatusPanel(
                 }
 
                 StatusSection(title = "Manual Exposure") {
-                    ControlStatusRows(
+                    ControlStatusRow(
                         label = "Manual exposure",
                         requested = settings.manualExposureEnabled,
                         supported = controlStatus.manualExposureSupported,
@@ -1214,15 +1214,31 @@ private fun StatusPanel(
 }
 
 @Composable
-private fun ControlStatusRows(
+private fun ControlStatusRow(
     label: String,
     requested: Boolean,
     supported: Boolean?,
     applied: Boolean?,
 ) {
-    StatusRow("$label requested", if (requested) "yes" else "no")
-    StatusRow("$label supported", supported.toMetadataState())
-    StatusRow("$label applied", applied.toAppliedState())
+    StatusRow(label, cameraControlDisplayState(
+        requested = requested,
+        supported = supported,
+        applied = applied,
+    ))
+}
+
+private fun cameraControlDisplayState(
+    requested: Boolean,
+    supported: Boolean?,
+    applied: Boolean?,
+): String {
+    return when {
+        supported == false -> "unsupported"
+        !requested -> "off"
+        applied == true -> "applied"
+        applied == false -> "not applied"
+        else -> "checking"
+    }
 }
 
 @Composable
