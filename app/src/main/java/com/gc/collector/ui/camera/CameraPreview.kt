@@ -2,6 +2,9 @@ package com.gc.collector.ui.camera
 
 import android.content.Context
 import android.hardware.camera2.CaptureRequest
+import android.util.Range
+import android.util.Size
+import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -119,12 +122,16 @@ fun CameraPreview(
 }
 
 private fun Preview.Builder.applyCaptureSettings(settings: CameraCaptureSettings) {
+    setTargetResolution(settings.resolution.toSize())
+    setTargetRotation(settings.orientationDeg.toSurfaceRotation())
     Camera2Interop.Extender(this).apply {
         applyCommonCaptureSettings(settings)
     }
 }
 
 private fun ImageAnalysis.Builder.applyCaptureSettings(settings: CameraCaptureSettings) {
+    setTargetResolution(settings.resolution.toSize())
+    setTargetRotation(settings.orientationDeg.toSurfaceRotation())
     Camera2Interop.Extender(this).apply {
         applyCommonCaptureSettings(settings)
     }
@@ -138,7 +145,21 @@ private fun Camera2Interop.Extender<*>.applyCommonCaptureSettings(settings: Came
         setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
     }
     setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, settings.exposureLocked)
+    setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(settings.fpsTarget, settings.fpsTarget))
     setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, settings.whiteBalanceLocked)
+}
+
+private fun com.gc.collector.model.ResolutionOption.toSize(): Size {
+    return Size(width, height)
+}
+
+private fun Int.toSurfaceRotation(): Int {
+    return when (this) {
+        90 -> Surface.ROTATION_90
+        180 -> Surface.ROTATION_180
+        270 -> Surface.ROTATION_270
+        else -> Surface.ROTATION_0
+    }
 }
 
 private fun unbindCamera(

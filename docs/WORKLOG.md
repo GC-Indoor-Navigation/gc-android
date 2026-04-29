@@ -463,3 +463,37 @@ BUILD SUCCESSFUL
 ```text
 BUILD SUCCESSFUL
 ```
+
+### 21. 카메라 촬영 조건 고정 구현 점검
+
+내부표정요소/외부표정요소 추정과 indoor navigation 구축을 위해 카메라 촬영 조건이 프레임마다 흔들리지 않도록 현재 구현을 점검했다.
+
+확인 결과:
+
+- Camera Setup에는 해상도, FPS, focus lock, exposure lock, white balance lock, zoom disable 옵션이 있다.
+- 기존 구현은 AF/AE/AWB/zoom 요청은 Camera2 interop에 일부 반영하고 있었다.
+- 하지만 해상도와 FPS는 UI/metadata에는 기록되지만 실제 CameraX builder에는 반영되지 않고 있었다.
+- orientation 값도 metadata에는 들어가지만 capture target rotation에는 반영되지 않고 있었다.
+
+수정한 내용:
+
+- `Preview.Builder`와 `ImageAnalysis.Builder`에 target resolution 적용
+- `Preview.Builder`와 `ImageAnalysis.Builder`에 target rotation 적용
+- `CONTROL_AE_TARGET_FPS_RANGE`로 target FPS range 요청
+- 기존 AF/AE/AWB/zoom 요청은 유지
+
+현재 한계:
+
+- `setTargetResolution`은 CameraX에서 deprecated 상태이므로 이후 `ResolutionSelector` 기반으로 정리해야 한다.
+- AF lock ON은 현재 `CONTROL_AF_MODE_OFF`와 `LENS_FOCUS_DISTANCE = 0f`를 요청하므로, 기기에 따라 실내 근거리 초점에는 적합하지 않을 수 있다.
+- AE/AWB lock은 요청 수준이며, 실제 적용 여부는 아직 `CaptureResult` 기반으로 확인하지 않는다.
+- ISO / shutter time 고정은 아직 구현하지 않았다.
+- 디지털 보정 기능 OFF 여부는 아직 명시적으로 확인하지 않는다.
+
+다음 카메라 설정 작업 후보:
+
+- 실제 적용 상태를 metadata에 `requested/applied/supported`로 분리
+- Camera2 characteristics 기반 지원 여부 조회
+- CaptureResult 기반 AF/AE/AWB 상태 기록
+- manual exposure 지원 기기에서 ISO / exposure time 입력 및 고정
+- `ResolutionSelector`로 해상도 선택 구현 정리
