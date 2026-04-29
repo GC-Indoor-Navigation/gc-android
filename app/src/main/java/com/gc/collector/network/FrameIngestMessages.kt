@@ -51,6 +51,18 @@ data class GrpcFrameMetadata(
     val zoomDisabled: Boolean,
     val orientationDeg: Int,
     val sensorTimestampNs: Long,
+    val focusLockRequested: Boolean,
+    val focusLockSupport: String,
+    val focusLockApplied: String,
+    val exposureLockRequested: Boolean,
+    val exposureLockSupport: String,
+    val exposureLockApplied: String,
+    val whiteBalanceLockRequested: Boolean,
+    val whiteBalanceLockSupport: String,
+    val whiteBalanceLockApplied: String,
+    val fpsTargetSupport: String,
+    val resolutionSupport: String,
+    val manualExposureSupport: String,
 ) {
     fun toByteArray(): ByteArray {
         return protoBytes {
@@ -70,6 +82,18 @@ data class GrpcFrameMetadata(
             writeBool(14, zoomDisabled)
             writeInt32(15, orientationDeg)
             writeInt64(16, sensorTimestampNs)
+            writeBool(17, focusLockRequested)
+            writeString(18, focusLockSupport)
+            writeString(19, focusLockApplied)
+            writeBool(20, exposureLockRequested)
+            writeString(21, exposureLockSupport)
+            writeString(22, exposureLockApplied)
+            writeBool(23, whiteBalanceLockRequested)
+            writeString(24, whiteBalanceLockSupport)
+            writeString(25, whiteBalanceLockApplied)
+            writeString(26, fpsTargetSupport)
+            writeString(27, resolutionSupport)
+            writeString(28, manualExposureSupport)
         }
     }
 }

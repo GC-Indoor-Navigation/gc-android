@@ -5,6 +5,7 @@ import android.os.SystemClock
 object FrameMetadataFactory {
     fun create(
         settings: CameraCaptureSettings,
+        controlStatus: CameraControlStatus,
         frameSequence: Long,
         width: Int,
         height: Int,
@@ -24,6 +25,18 @@ object FrameMetadataFactory {
             whiteBalanceLocked = settings.whiteBalanceLocked,
             zoomDisabled = settings.zoomDisabled,
             orientationDeg = settings.orientationDeg,
+            focusLockRequested = settings.focusLocked,
+            focusLockSupport = controlStatus.focusLockSupported.toMetadataState(),
+            focusLockApplied = controlStatus.focusLockApplied.toAppliedState(),
+            exposureLockRequested = settings.exposureLocked,
+            exposureLockSupport = controlStatus.exposureLockSupported.toMetadataState(),
+            exposureLockApplied = controlStatus.exposureLockApplied.toAppliedState(),
+            whiteBalanceLockRequested = settings.whiteBalanceLocked,
+            whiteBalanceLockSupport = controlStatus.whiteBalanceLockSupported.toMetadataState(),
+            whiteBalanceLockApplied = controlStatus.whiteBalanceLockApplied.toAppliedState(),
+            fpsTargetSupport = controlStatus.fpsTargetSupported.toMetadataState(),
+            resolutionSupport = controlStatus.resolutionSupported.toMetadataState(),
+            manualExposureSupport = controlStatus.manualExposureSupported.toMetadataState(),
         )
     }
 }

@@ -32,4 +32,28 @@ data class FrameMetadata(
     val zoomDisabled: Boolean,
     @SerialName("orientation_deg")
     val orientationDeg: Int,
+    @SerialName("focus_lock_requested")
+    val focusLockRequested: Boolean,
+    @SerialName("focus_lock_support")
+    val focusLockSupport: String,
+    @SerialName("focus_lock_applied")
+    val focusLockApplied: String,
+    @SerialName("exposure_lock_requested")
+    val exposureLockRequested: Boolean,
+    @SerialName("exposure_lock_support")
+    val exposureLockSupport: String,
+    @SerialName("exposure_lock_applied")
+    val exposureLockApplied: String,
+    @SerialName("white_balance_lock_requested")
+    val whiteBalanceLockRequested: Boolean,
+    @SerialName("white_balance_lock_support")
+    val whiteBalanceLockSupport: String,
+    @SerialName("white_balance_lock_applied")
+    val whiteBalanceLockApplied: String,
+    @SerialName("fps_target_support")
+    val fpsTargetSupport: String,
+    @SerialName("resolution_support")
+    val resolutionSupport: String,
+    @SerialName("manual_exposure_support")
+    val manualExposureSupport: String,
 )

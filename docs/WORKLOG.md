@@ -497,3 +497,62 @@ BUILD SUCCESSFUL
 - CaptureResult 기반 AF/AE/AWB 상태 기록
 - manual exposure 지원 기기에서 ISO / exposure time 입력 및 고정
 - `ResolutionSelector`로 해상도 선택 구현 정리
+
+### 22. 카메라 설정 requested/supported/applied 분리
+
+촬영 조건 고정 여부를 더 명확히 기록하기 위해 카메라 설정 상태를 `requested / supported / applied` 관점으로 분리했다.
+
+추가한 모델:
+
+- `CameraControlStatus`
+
+추가한 상태:
+
+- focus lock supported/applied
+- exposure lock supported/applied
+- white balance lock supported/applied
+- FPS target supported
+- resolution supported
+- manual exposure supported
+- zoom supported
+
+구현 내용:
+
+- CameraX 바인딩 후 `Camera2CameraInfo`로 `CameraCharacteristics`를 조회한다.
+- AE lock 지원 여부를 `CONTROL_AE_LOCK_AVAILABLE`로 확인한다.
+- AWB lock 지원 여부를 `CONTROL_AWB_LOCK_AVAILABLE`로 확인한다.
+- AF off mode 지원 여부를 `CONTROL_AF_AVAILABLE_MODES`로 확인한다.
+- target FPS 포함 여부를 `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES`로 확인한다.
+- 선택 해상도 지원 여부를 `SCALER_STREAM_CONFIGURATION_MAP`의 YUV output size로 확인한다.
+- manual exposure 가능성은 `REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR`로 확인한다.
+
+metadata 변경:
+
+- `focus_lock_requested`
+- `focus_lock_support`
+- `focus_lock_applied`
+- `exposure_lock_requested`
+- `exposure_lock_support`
+- `exposure_lock_applied`
+- `white_balance_lock_requested`
+- `white_balance_lock_support`
+- `white_balance_lock_applied`
+- `fps_target_support`
+- `resolution_support`
+- `manual_exposure_support`
+
+Status 패널 변경:
+
+- focus/exposure/white balance lock을 `requested / supported / applied` 형태로 표시한다.
+- FPS target, resolution, manual exposure 지원 여부를 표시한다.
+
+현재 한계:
+
+- `applied`는 아직 `CaptureResult` 기반으로 확인하지 않으므로 `unknown`으로 남긴다.
+- 다음 단계에서 frame별 또는 주기적 capture result를 읽어 실제 적용 여부를 갱신해야 한다.
+
+현재 빌드 상태:
+
+```text
+BUILD SUCCESSFUL
+```

@@ -71,9 +71,12 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import com.gc.collector.camera.CapturedFrame
 import com.gc.collector.model.CameraCaptureSettings
+import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.ResolutionOption
+import com.gc.collector.model.toAppliedState
+import com.gc.collector.model.toMetadataState
 import com.gc.collector.network.GrpcFrameSender
 import com.gc.collector.network.SendResult
 import com.gc.collector.network.parseGrpcEndpoint
@@ -224,6 +227,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             },
             isCapturing = uiState.isCapturing,
             settings = uiState.settings,
+            controlStatus = uiState.cameraControlStatus,
             nextFrameSequence = { uiState.stats.frameSequence + 1L },
             onFrameCaptured = { frame ->
                 if (uiState.isCapturing) {
@@ -287,6 +291,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
             },
             onCameraReady = {
                 cameraStatus = "Back camera preview ready"
+            },
+            onCameraControlStatus = { status ->
+                uiState = uiState.copy(cameraControlStatus = status)
             },
             onCameraError = { message ->
                 cameraStatus = message
@@ -366,11 +373,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         .width(panelWidth)
                         .fillMaxHeight()
                         .padding(vertical = 0.dp, horizontal = 0.dp),
-                    settings = settings,
+                settings = settings,
                 stats = stats,
                 isCapturing = uiState.isCapturing,
                 cameraStatus = cameraStatus,
                 networkStatus = networkStatus,
+                controlStatus = uiState.cameraControlStatus,
                 isLandscape = true,
                 includeSettings = false,
                 onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
@@ -395,6 +403,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     isCapturing = uiState.isCapturing,
                     cameraStatus = cameraStatus,
                     networkStatus = networkStatus,
+                    controlStatus = uiState.cameraControlStatus,
                     isLandscape = false,
                     includeSettings = false,
                     onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
@@ -555,6 +564,7 @@ private fun SlideDetailsPanel(
     isCapturing: Boolean,
     cameraStatus: String,
     networkStatus: String,
+    controlStatus: CameraControlStatus,
     isLandscape: Boolean,
     includeSettings: Boolean,
     onSettingsChange: (CameraCaptureSettings) -> Unit,
@@ -592,6 +602,7 @@ private fun SlideDetailsPanel(
                 isCapturing = isCapturing,
                 cameraStatus = cameraStatus,
                 networkStatus = networkStatus,
+                controlStatus = controlStatus,
                 initiallyExpanded = true,
             )
         }
@@ -606,8 +617,10 @@ private fun CameraPanel(
     onRequestPermission: () -> Unit,
     isCapturing: Boolean,
     settings: CameraCaptureSettings,
+    controlStatus: CameraControlStatus,
     nextFrameSequence: () -> Long,
     onFrameCaptured: (CapturedFrame) -> Unit,
+    onCameraControlStatus: (CameraControlStatus) -> Unit,
     onCameraReady: () -> Unit,
     onCameraError: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -622,8 +635,10 @@ private fun CameraPanel(
                 modifier = Modifier.fillMaxSize(),
                 isAnalyzing = isCapturing,
                 settings = settings,
+                controlStatus = controlStatus,
                 nextFrameSequence = nextFrameSequence,
                 onFrameCaptured = onFrameCaptured,
+                onCameraControlStatus = onCameraControlStatus,
                 onCameraReady = onCameraReady,
                 onCameraError = onCameraError,
             )
@@ -1044,6 +1059,7 @@ private fun StatusPanel(
     isCapturing: Boolean,
     cameraStatus: String,
     networkStatus: String,
+    controlStatus: CameraControlStatus,
     initiallyExpanded: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -1094,9 +1110,21 @@ private fun StatusPanel(
                 StatusRow("Dropped frames", stats.droppedFrames.toString())
                 StatusRow("Current FPS", "%.1f".format(stats.currentFps))
                 StatusRow("Focus mode", settings.focusMode)
-                StatusRow("Focus locked", settings.focusLocked.toString())
-                StatusRow("Exposure locked", settings.exposureLocked.toString())
-                StatusRow("White balance locked", settings.whiteBalanceLocked.toString())
+                StatusRow("Focus lock", settings.focusLocked.toRequestSummary(
+                    support = controlStatus.focusLockSupported,
+                    applied = controlStatus.focusLockApplied,
+                ))
+                StatusRow("Exposure lock", settings.exposureLocked.toRequestSummary(
+                    support = controlStatus.exposureLockSupported,
+                    applied = controlStatus.exposureLockApplied,
+                ))
+                StatusRow("White balance lock", settings.whiteBalanceLocked.toRequestSummary(
+                    support = controlStatus.whiteBalanceLockSupported,
+                    applied = controlStatus.whiteBalanceLockApplied,
+                ))
+                StatusRow("FPS target support", controlStatus.fpsTargetSupported.toMetadataState())
+                StatusRow("Resolution support", controlStatus.resolutionSupported.toMetadataState())
+                StatusRow("Manual exposure", controlStatus.manualExposureSupported.toMetadataState())
                 StatusRow("Zoom disabled", settings.zoomDisabled.toString())
                 StatusRow("Orientation", "${settings.orientationDeg} deg")
             }
@@ -1166,6 +1194,14 @@ private fun CaptureStats.summaryText(isCapturing: Boolean): String {
     return "$state, seq $frameSequence, ${"%.1f".format(currentFps)} FPS"
 }
 
+private fun Boolean.toRequestSummary(
+    support: Boolean?,
+    applied: Boolean?,
+): String {
+    val requested = if (this) "requested" else "not_requested"
+    return "$requested / ${support.toMetadataState()} / ${applied.toAppliedState()}"
+}
+
 private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
     return listSaver(
         save = { state ->
@@ -1189,6 +1225,16 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                 state.stats.failedCount,
                 state.stats.droppedFrames,
                 state.stats.currentFps,
+                state.cameraControlStatus.focusLockSupported,
+                state.cameraControlStatus.focusLockApplied,
+                state.cameraControlStatus.exposureLockSupported,
+                state.cameraControlStatus.exposureLockApplied,
+                state.cameraControlStatus.whiteBalanceLockSupported,
+                state.cameraControlStatus.whiteBalanceLockApplied,
+                state.cameraControlStatus.fpsTargetSupported,
+                state.cameraControlStatus.resolutionSupported,
+                state.cameraControlStatus.manualExposureSupported,
+                state.cameraControlStatus.zoomSupported,
             )
         },
         restore = { values ->
@@ -1215,6 +1261,18 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                     failedCount = (values[16] as Number).toLong(),
                     droppedFrames = (values[17] as Number).toLong(),
                     currentFps = (values[18] as Number).toFloat(),
+                ),
+                cameraControlStatus = CameraControlStatus(
+                    focusLockSupported = values[19] as Boolean?,
+                    focusLockApplied = values[20] as Boolean?,
+                    exposureLockSupported = values[21] as Boolean?,
+                    exposureLockApplied = values[22] as Boolean?,
+                    whiteBalanceLockSupported = values[23] as Boolean?,
+                    whiteBalanceLockApplied = values[24] as Boolean?,
+                    fpsTargetSupported = values[25] as Boolean?,
+                    resolutionSupported = values[26] as Boolean?,
+                    manualExposureSupported = values[27] as Boolean?,
+                    zoomSupported = values[28] as Boolean?,
                 ),
             )
         },

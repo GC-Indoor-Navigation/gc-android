@@ -1,10 +1,13 @@
 package com.gc.collector.ui.camera
 
 import android.content.Context
+import android.graphics.ImageFormat
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CameraCharacteristics
 import android.util.Range
 import android.util.Size
 import android.view.Surface
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -24,8 +27,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.gc.collector.camera.CapturedFrame
 import com.gc.collector.camera.JpegFrameEncoder
+import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.FrameMetadataFactory
+import com.gc.collector.model.ResolutionOption
 import java.util.concurrent.Executor
 
 @Composable
@@ -34,7 +39,9 @@ fun CameraPreview(
     isAnalyzing: Boolean,
     settings: CameraCaptureSettings,
     nextFrameSequence: () -> Long,
+    controlStatus: CameraControlStatus,
     onFrameCaptured: (CapturedFrame) -> Unit,
+    onCameraControlStatus: (CameraControlStatus) -> Unit,
     onCameraReady: () -> Unit,
     onCameraError: (String) -> Unit,
 ) {
@@ -48,7 +55,17 @@ fun CameraPreview(
     }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
 
-    LaunchedEffect(context, lifecycleOwner, previewView, isAnalyzing, settings, nextFrameSequence, onFrameCaptured) {
+    LaunchedEffect(
+        context,
+        lifecycleOwner,
+        previewView,
+        isAnalyzing,
+        settings,
+        nextFrameSequence,
+        controlStatus,
+        onFrameCaptured,
+        onCameraControlStatus,
+    ) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener(
             {
@@ -69,6 +86,7 @@ fun CameraPreview(
                                     if (isAnalyzing) {
                                         val metadata = FrameMetadataFactory.create(
                                             settings = settings,
+                                            controlStatus = controlStatus,
                                             frameSequence = nextFrameSequence(),
                                             width = imageProxy.width,
                                             height = imageProxy.height,
@@ -98,6 +116,7 @@ fun CameraPreview(
                     if (settings.zoomDisabled) {
                         camera.cameraControl.setZoomRatio(1.0f)
                     }
+                    onCameraControlStatus(camera.cameraInfo.readControlStatus(settings))
                     onCameraReady()
                 }.onFailure { error ->
                     onCameraError(error.message ?: "Failed to bind camera preview")
@@ -149,7 +168,47 @@ private fun Camera2Interop.Extender<*>.applyCommonCaptureSettings(settings: Came
     setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, settings.whiteBalanceLocked)
 }
 
-private fun com.gc.collector.model.ResolutionOption.toSize(): Size {
+private fun androidx.camera.core.CameraInfo.readControlStatus(settings: CameraCaptureSettings): CameraControlStatus {
+    val camera2Info = Camera2CameraInfo.from(this)
+    val aeLockAvailable = camera2Info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE)
+    val awbLockAvailable = camera2Info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE)
+    val afModes = camera2Info.getCameraCharacteristic(
+        CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES,
+    ) ?: intArrayOf()
+    val capabilities = camera2Info.getCameraCharacteristic(
+        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES,
+    ) ?: intArrayOf()
+    val fpsRanges = camera2Info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
+    val streamMap = camera2Info.getCameraCharacteristic(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+    val maxDigitalZoom = camera2Info.getCameraCharacteristic(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM)
+
+    return CameraControlStatus(
+        focusLockSupported = afModes.contains(CaptureRequest.CONTROL_AF_MODE_OFF),
+        focusLockApplied = null,
+        exposureLockSupported = aeLockAvailable == true,
+        exposureLockApplied = null,
+        whiteBalanceLockSupported = awbLockAvailable == true,
+        whiteBalanceLockApplied = null,
+        fpsTargetSupported = fpsRanges.any { range ->
+            settings.fpsTarget >= range.lower && settings.fpsTarget <= range.upper
+        },
+        resolutionSupported = streamMap
+            ?.getOutputSizes(ImageFormat.YUV_420_888)
+            .orEmpty()
+            .any { size -> size.matches(settings.resolution) },
+        manualExposureSupported = capabilities.contains(
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR,
+        ),
+        zoomSupported = maxDigitalZoom != null && maxDigitalZoom >= 1.0f,
+    )
+}
+
+private fun Size.matches(option: ResolutionOption): Boolean {
+    return (width == option.width && height == option.height) ||
+        (width == option.height && height == option.width)
+}
+
+private fun ResolutionOption.toSize(): Size {
     return Size(width, height)
 }
 
