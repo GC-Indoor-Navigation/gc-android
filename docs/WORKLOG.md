@@ -526,6 +526,48 @@ UI 변경:
 :app:assembleDebug BUILD SUCCESSFUL
 ```
 
+### 25. Status 패널 정리 및 실기기 검증 체크리스트 추가
+
+실제 휴대폰에서 카메라 설정 고정 상태를 확인하기 쉽도록 Status 패널을 섹션 구조로 정리했다.
+
+Status 패널 섹션:
+
+- Capture
+- Transport
+- Camera Controls
+- Manual Exposure
+- Device Capability
+
+정리한 이유:
+
+- 기존 Status 패널은 frame 상태, network 상태, camera capability, manual exposure 값이 한 목록에 섞여 있었다.
+- 실기기 검증 시 `requested / supported / applied` 값을 빠르게 비교하기 어렵다.
+- calibration 수집 전에 기기별 카메라 설정 지원 범위를 확인해야 한다.
+
+추가 문서:
+
+- `docs/device-camera-validation-checklist.md`
+
+체크리스트 내용:
+
+- 기본 앱 상태 확인
+- 해상도/FPS 확인
+- focus lock 확인
+- exposure lock 확인
+- white balance lock 확인
+- manual exposure 확인
+- zoom 확인
+- 서버 metadata 확인 항목
+- 기기별 기록 양식
+- calibration/runtime 수집 권장 판정 기준
+
+검증:
+
+```text
+:app:testDebugUnitTest PASS
+:app:assembleDebug BUILD SUCCESSFUL
+```
+
 ### 23. CaptureResult 기반 applied 상태 갱신
 
 카메라 설정 상태 중 `applied` 값을 `unknown`으로만 두지 않도록 Camera2 capture result 콜백을 연결했다.

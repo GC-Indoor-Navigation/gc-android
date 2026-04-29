@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -1147,44 +1148,79 @@ private fun StatusPanel(
             }
 
             if (expanded) {
-                StatusRow("Capture", if (isCapturing) "running" else "stopped")
-                StatusRow("Camera", cameraStatus)
-                StatusRow("Network", networkStatus)
-                StatusRow("Frame sequence", stats.frameSequence.toString())
-                StatusRow("Last timestamp ms", stats.lastDeviceTimestampMs?.toString() ?: "-")
-                StatusRow("Last monotonic ns", stats.lastDeviceMonotonicNs?.toString() ?: "-")
-                StatusRow("Sent / failed", "${stats.sentCount} / ${stats.failedCount}")
-                StatusRow("Dropped frames", stats.droppedFrames.toString())
-                StatusRow("Current FPS", "%.1f".format(stats.currentFps))
-                StatusRow("Focus mode", settings.focusMode)
-                StatusRow("Focus lock", settings.focusLocked.toRequestSummary(
-                    support = controlStatus.focusLockSupported,
-                    applied = controlStatus.focusLockApplied,
-                ))
-                StatusRow("Exposure lock", settings.exposureLocked.toRequestSummary(
-                    support = controlStatus.exposureLockSupported,
-                    applied = controlStatus.exposureLockApplied,
-                ))
-                StatusRow("White balance lock", settings.whiteBalanceLocked.toRequestSummary(
-                    support = controlStatus.whiteBalanceLockSupported,
-                    applied = controlStatus.whiteBalanceLockApplied,
-                ))
-                StatusRow("FPS target support", controlStatus.fpsTargetSupported.toMetadataState())
-                StatusRow("Resolution support", controlStatus.resolutionSupported.toMetadataState())
-                StatusRow("Manual exposure", settings.manualExposureEnabled.toRequestSummary(
-                    support = controlStatus.manualExposureSupported,
-                    applied = controlStatus.manualExposureApplied,
-                ))
-                StatusRow("ISO req / applied", "${settings.iso} / ${controlStatus.isoApplied ?: "-"}")
-                StatusRow(
-                    "Shutter ns req / applied",
-                    "${settings.exposureTimeNs} / ${controlStatus.exposureTimeNsApplied ?: "-"}",
-                )
-                StatusRow("Focal length mm", controlStatus.focalLengthMm?.let { "%.2f".format(it) } ?: "-")
-                StatusRow("Zoom disabled", settings.zoomDisabled.toString())
-                StatusRow("Orientation", "${settings.orientationDeg} deg")
+                StatusSection(title = "Capture") {
+                    StatusRow("State", if (isCapturing) "running" else "stopped")
+                    StatusRow("Camera", cameraStatus)
+                    StatusRow("Frame sequence", stats.frameSequence.toString())
+                    StatusRow("Last timestamp ms", stats.lastDeviceTimestampMs?.toString() ?: "-")
+                    StatusRow("Last monotonic ns", stats.lastDeviceMonotonicNs?.toString() ?: "-")
+                    StatusRow("Current FPS", "%.1f".format(stats.currentFps))
+                }
+
+                StatusSection(title = "Transport") {
+                    StatusRow("Network", networkStatus)
+                    StatusRow("Sent / failed", "${stats.sentCount} / ${stats.failedCount}")
+                    StatusRow("Dropped frames", stats.droppedFrames.toString())
+                }
+
+                StatusSection(title = "Camera Controls") {
+                    StatusRow("Focus mode", settings.focusMode)
+                    StatusRow("Focus lock", settings.focusLocked.toRequestSummary(
+                        support = controlStatus.focusLockSupported,
+                        applied = controlStatus.focusLockApplied,
+                    ))
+                    StatusRow("Exposure lock", settings.exposureLocked.toRequestSummary(
+                        support = controlStatus.exposureLockSupported,
+                        applied = controlStatus.exposureLockApplied,
+                    ))
+                    StatusRow("White balance lock", settings.whiteBalanceLocked.toRequestSummary(
+                        support = controlStatus.whiteBalanceLockSupported,
+                        applied = controlStatus.whiteBalanceLockApplied,
+                    ))
+                    StatusRow("Zoom disabled", settings.zoomDisabled.toString())
+                    StatusRow("Orientation", "${settings.orientationDeg} deg")
+                }
+
+                StatusSection(title = "Manual Exposure") {
+                    StatusRow("Manual exposure", settings.manualExposureEnabled.toRequestSummary(
+                        support = controlStatus.manualExposureSupported,
+                        applied = controlStatus.manualExposureApplied,
+                    ))
+                    StatusRow("ISO req / applied", "${settings.iso} / ${controlStatus.isoApplied ?: "-"}")
+                    StatusRow(
+                        "Shutter ns req / applied",
+                        "${settings.exposureTimeNs} / ${controlStatus.exposureTimeNsApplied ?: "-"}",
+                    )
+                    StatusRow("Focal length mm", controlStatus.focalLengthMm?.let { "%.2f".format(it) } ?: "-")
+                }
+
+                StatusSection(title = "Device Capability") {
+                    StatusRow("FPS target", controlStatus.fpsTargetSupported.toMetadataState())
+                    StatusRow("Resolution", controlStatus.resolutionSupported.toMetadataState())
+                    StatusRow("Manual exposure", controlStatus.manualExposureSupported.toMetadataState())
+                    StatusRow("Zoom", controlStatus.zoomSupported.toMetadataState())
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Medium,
+        )
+        content()
     }
 }
 
