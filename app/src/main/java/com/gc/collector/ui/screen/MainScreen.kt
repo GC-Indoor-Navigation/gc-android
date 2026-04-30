@@ -1,8 +1,10 @@
 package com.gc.collector.ui.screen
 
 import android.Manifest
+import android.app.Activity
 import android.content.res.Configuration
 import android.os.SystemClock
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -99,6 +101,22 @@ private enum class CollectorScreen {
 }
 
 @Composable
+private fun KeepScreenOn(enabled: Boolean) {
+    val activity = LocalContext.current as? Activity
+    DisposableEffect(activity, enabled) {
+        if (enabled) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+}
+
+@Composable
 fun MainScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -133,6 +151,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
     )
     val settings = uiState.settings
     val stats = uiState.stats
+
+    KeepScreenOn(enabled = currentScreen == CollectorScreen.CameraCapture && uiState.isCapturing)
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraSetup || currentScreen == CollectorScreen.UseMode) {
         currentScreenName = CollectorScreen.ModeSelection.name
