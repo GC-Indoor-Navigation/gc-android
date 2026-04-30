@@ -152,7 +152,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     val settings = uiState.settings
     val stats = uiState.stats
 
-    KeepScreenOn(enabled = currentScreen == CollectorScreen.CameraCapture && uiState.isCapturing)
+    KeepScreenOn(enabled = currentScreen == CollectorScreen.CameraCapture)
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraSetup || currentScreen == CollectorScreen.UseMode) {
         currentScreenName = CollectorScreen.ModeSelection.name
