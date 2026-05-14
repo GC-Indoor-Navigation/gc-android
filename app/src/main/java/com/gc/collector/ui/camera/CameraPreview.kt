@@ -1,6 +1,7 @@
 package com.gc.collector.ui.camera
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CaptureRequest
@@ -14,6 +15,7 @@ import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -25,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
@@ -50,7 +53,9 @@ fun CameraPreview(
     onCameraError: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val targetRotation = configuration.toSurfaceRotation()
     val previewView = remember {
         PreviewView(context).apply {
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -66,6 +71,7 @@ fun CameraPreview(
         previewView,
         isAnalyzing,
         settings,
+        targetRotation,
         nextFrameSequence,
         onFrameCaptured,
         onCameraControlStatus,
@@ -96,6 +102,7 @@ fun CameraPreview(
                     val previewBuilder = Preview.Builder()
                     previewBuilder.applyCaptureSettings(
                         settings = settings,
+                        targetRotation = targetRotation,
                         captureCallback = captureCallback,
                     )
                     val preview = previewBuilder.build().also {
@@ -103,20 +110,29 @@ fun CameraPreview(
                     }
                     val analysisBuilder = ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    analysisBuilder.applyCaptureSettings(settings)
+                    analysisBuilder.applyCaptureSettings(
+                        settings = settings,
+                        targetRotation = targetRotation,
+                    )
                     val imageAnalysis = analysisBuilder.build()
                         .also { analysis ->
                             analysis.setAnalyzer(mainExecutor) { imageProxy ->
                                 try {
                                     if (isAnalyzing) {
+                                        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+                                        val frameSize = imageProxy.rotatedSize(rotationDegrees)
                                         val metadata = FrameMetadataFactory.create(
                                             settings = settings,
                                             controlStatus = currentControlStatus.value,
                                             frameSequence = nextFrameSequence(),
-                                            width = imageProxy.width,
-                                            height = imageProxy.height,
+                                            width = frameSize.width,
+                                            height = frameSize.height,
+                                            orientationDeg = rotationDegrees,
                                         )
-                                        val jpegBytes = JpegFrameEncoder.encode(imageProxy)
+                                        val jpegBytes = JpegFrameEncoder.encode(
+                                            imageProxy = imageProxy,
+                                            rotationDegrees = rotationDegrees,
+                                        )
                                         onFrameCaptured(
                                             CapturedFrame(
                                                 jpegBytes = jpegBytes,
@@ -169,19 +185,23 @@ fun CameraPreview(
 
 private fun Preview.Builder.applyCaptureSettings(
     settings: CameraCaptureSettings,
+    targetRotation: Int,
     captureCallback: CameraCaptureSession.CaptureCallback,
 ) {
-    setTargetResolution(settings.resolution.toSize())
-    setTargetRotation(settings.orientationDeg.toSurfaceRotation())
+    setTargetResolution(settings.resolution.toSize(targetRotation))
+    setTargetRotation(targetRotation)
     Camera2Interop.Extender(this).apply {
         applyCommonCaptureSettings(settings)
         setSessionCaptureCallback(captureCallback)
     }
 }
 
-private fun ImageAnalysis.Builder.applyCaptureSettings(settings: CameraCaptureSettings) {
-    setTargetResolution(settings.resolution.toSize())
-    setTargetRotation(settings.orientationDeg.toSurfaceRotation())
+private fun ImageAnalysis.Builder.applyCaptureSettings(
+    settings: CameraCaptureSettings,
+    targetRotation: Int,
+) {
+    setTargetResolution(settings.resolution.toSize(targetRotation))
+    setTargetRotation(targetRotation)
     Camera2Interop.Extender(this).apply {
         applyCommonCaptureSettings(settings)
     }
@@ -298,15 +318,31 @@ private fun Size.matches(option: ResolutionOption): Boolean {
         (width == option.height && height == option.width)
 }
 
-private fun ResolutionOption.toSize(): Size {
-    return Size(width, height)
+private fun ResolutionOption.toSize(targetRotation: Int): Size {
+    return if (targetRotation == Surface.ROTATION_0 || targetRotation == Surface.ROTATION_180) {
+        Size(height, width)
+    } else {
+        Size(width, height)
+    }
 }
 
-private fun Int.toSurfaceRotation(): Int {
-    return when (this) {
-        90 -> Surface.ROTATION_90
-        180 -> Surface.ROTATION_180
-        270 -> Surface.ROTATION_270
+private data class FrameSize(
+    val width: Int,
+    val height: Int,
+)
+
+private fun ImageProxy.rotatedSize(rotationDegrees: Int): FrameSize {
+    val normalizedRotation = ((rotationDegrees % 360) + 360) % 360
+    return if (normalizedRotation == 90 || normalizedRotation == 270) {
+        FrameSize(width = height, height = width)
+    } else {
+        FrameSize(width = width, height = height)
+    }
+}
+
+private fun Configuration.toSurfaceRotation(): Int {
+    return when (orientation) {
+        Configuration.ORIENTATION_LANDSCAPE -> Surface.ROTATION_90
         else -> Surface.ROTATION_0
     }
 }

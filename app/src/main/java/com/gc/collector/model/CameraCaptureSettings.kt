@@ -21,12 +21,50 @@ data class CameraCaptureSettings(
 )
 
 @Serializable
-enum class ResolutionOption(
+data class ResolutionOption(
     val label: String,
     val width: Int,
     val height: Int,
 ) {
-    HD("1280 x 720", 1280, 720),
-    FULL_HD("1920 x 1080", 1920, 1080),
-    VGA("640 x 480", 640, 480),
+    companion object {
+        val QVGA = ResolutionOption("320 x 240", 320, 240)
+        val VGA = ResolutionOption("640 x 480", 640, 480)
+        val NHD = ResolutionOption("640 x 360", 640, 360)
+        val SVGA = ResolutionOption("800 x 600", 800, 600)
+        val QHD_LITE = ResolutionOption("960 x 540", 960, 540)
+        val XGA = ResolutionOption("1024 x 768", 1024, 768)
+        val HD = ResolutionOption("1280 x 720", 1280, 720)
+        val SXGA = ResolutionOption("1280 x 960", 1280, 960)
+        val HD_PLUS = ResolutionOption("1600 x 900", 1600, 900)
+        val FULL_HD = ResolutionOption("1920 x 1080", 1920, 1080)
+        val QHD = ResolutionOption("2560 x 1440", 2560, 1440)
+        val UHD = ResolutionOption("3840 x 2160", 3840, 2160)
+
+        val commonOptions = listOf(
+            QVGA,
+            VGA,
+            NHD,
+            SVGA,
+            QHD_LITE,
+            XGA,
+            HD,
+            SXGA,
+            HD_PLUS,
+            FULL_HD,
+            QHD,
+            UHD,
+        )
+
+        fun fromDimensions(width: Int, height: Int): ResolutionOption {
+            val normalizedWidth = maxOf(width, height)
+            val normalizedHeight = minOf(width, height)
+            return commonOptions.firstOrNull { option ->
+                option.width == normalizedWidth && option.height == normalizedHeight
+            } ?: ResolutionOption(
+                label = "$normalizedWidth x $normalizedHeight",
+                width = normalizedWidth,
+                height = normalizedHeight,
+            )
+        }
+    }
 }

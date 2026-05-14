@@ -1,6 +1,8 @@
 package com.gc.collector.camera
 
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import androidx.camera.core.ImageProxy
@@ -10,6 +12,7 @@ object JpegFrameEncoder {
     fun encode(
         imageProxy: ImageProxy,
         quality: Int = 80,
+        rotationDegrees: Int = imageProxy.imageInfo.rotationDegrees,
     ): ByteArray {
         require(imageProxy.format == ImageFormat.YUV_420_888) {
             "Unsupported image format: ${imageProxy.format}"
@@ -29,8 +32,39 @@ object JpegFrameEncoder {
             quality,
             output,
         )
-        return output.toByteArray()
+        val jpegBytes = output.toByteArray()
+        return jpegBytes.rotateJpeg(rotationDegrees, quality)
     }
+}
+
+private fun ByteArray.rotateJpeg(
+    rotationDegrees: Int,
+    quality: Int,
+): ByteArray {
+    val normalizedRotation = ((rotationDegrees % 360) + 360) % 360
+    if (normalizedRotation == 0) return this
+
+    val bitmap = BitmapFactory.decodeByteArray(this, 0, size) ?: return this
+    val matrix = Matrix().apply {
+        postRotate(normalizedRotation.toFloat())
+    }
+    val rotatedBitmap = android.graphics.Bitmap.createBitmap(
+        bitmap,
+        0,
+        0,
+        bitmap.width,
+        bitmap.height,
+        matrix,
+        true,
+    )
+
+    val output = ByteArrayOutputStream()
+    rotatedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, output)
+    if (rotatedBitmap != bitmap) {
+        rotatedBitmap.recycle()
+    }
+    bitmap.recycle()
+    return output.toByteArray()
 }
 
 private fun ImageProxy.toNv21(): ByteArray {

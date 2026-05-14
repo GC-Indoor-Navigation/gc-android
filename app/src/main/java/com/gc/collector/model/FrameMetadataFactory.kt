@@ -9,6 +9,7 @@ object FrameMetadataFactory {
         frameSequence: Long,
         width: Int,
         height: Int,
+        orientationDeg: Int = settings.orientationDeg,
     ): FrameMetadata {
         return FrameMetadata(
             cameraId = settings.cameraId,
@@ -24,7 +25,7 @@ object FrameMetadataFactory {
             exposureLocked = settings.exposureLocked,
             whiteBalanceLocked = settings.whiteBalanceLocked,
             zoomDisabled = settings.zoomDisabled,
-            orientationDeg = settings.orientationDeg,
+            orientationDeg = orientationDeg,
             focusLockRequested = settings.focusLocked,
             focusLockSupport = controlStatus.focusLockSupported.toMetadataState(),
             focusLockApplied = controlStatus.focusLockApplied.toAppliedState(),

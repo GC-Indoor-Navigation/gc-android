@@ -86,6 +86,7 @@ import com.gc.collector.network.GrpcFrameSender
 import com.gc.collector.network.SendResult
 import com.gc.collector.network.parseGrpcEndpoint
 import com.gc.collector.ui.camera.CameraPreview
+import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
 import com.gc.collector.ui.theme.GcandroidTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -136,6 +137,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
     var lastFpsWindowStartedNs by remember { mutableStateOf<Long?>(null) }
     var framesInCurrentWindow by remember { mutableStateOf(0) }
     var networkStatus by rememberSaveable { mutableStateOf("gRPC disconnected") }
+    var resolutionOptions by remember { mutableStateOf(ResolutionOption.commonOptions) }
+    var resolutionOptionsStatus by rememberSaveable { mutableStateOf("common resolution presets") }
     val frameSender = remember { GrpcFrameSender() }
     val coroutineScope = rememberCoroutineScope()
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -181,6 +184,24 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    LaunchedEffect(currentScreen) {
+        if (currentScreen == CollectorScreen.CameraSetup) {
+            val loadedOptions = withContext(Dispatchers.Default) {
+                runCatching { loadBackCameraResolutionOptions(context) }.getOrDefault(emptyList())
+            }
+            if (loadedOptions.isNotEmpty()) {
+                resolutionOptions = loadedOptions
+                resolutionOptionsStatus = "supported by back camera"
+                if (settings.resolution !in loadedOptions) {
+                    uiState = uiState.copy(settings = settings.copy(resolution = loadedOptions.first()))
+                }
+            } else {
+                resolutionOptions = ResolutionOption.commonOptions
+                resolutionOptionsStatus = "using common presets"
+            }
+        }
+    }
+
     when (currentScreen) {
         CollectorScreen.ModeSelection -> {
             ModeSelectionScreen(
@@ -195,6 +216,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
             CameraSetupScreen(
                 modifier = modifier,
                 settings = settings,
+                resolutionOptions = resolutionOptions,
+                resolutionOptionsStatus = resolutionOptionsStatus,
                 onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
                 onBack = { currentScreenName = CollectorScreen.ModeSelection.name },
                 onContinue = {
@@ -503,6 +526,8 @@ private fun ModeCard(
 @Composable
 private fun CameraSetupScreen(
     settings: CameraCaptureSettings,
+    resolutionOptions: List<ResolutionOption>,
+    resolutionOptionsStatus: String,
     onSettingsChange: (CameraCaptureSettings) -> Unit,
     onBack: () -> Unit,
     onContinue: () -> Unit,
@@ -523,6 +548,8 @@ private fun CameraSetupScreen(
         )
         SettingsPanel(
             settings = settings,
+            resolutionOptions = resolutionOptions,
+            resolutionOptionsStatus = resolutionOptionsStatus,
             isCapturing = false,
             initiallyExpanded = true,
             showToggle = false,
@@ -724,6 +751,8 @@ private fun PreviewBadge(
 @Composable
 private fun SettingsPanel(
     settings: CameraCaptureSettings,
+    resolutionOptions: List<ResolutionOption> = ResolutionOption.commonOptions,
+    resolutionOptionsStatus: String? = null,
     isCapturing: Boolean,
     initiallyExpanded: Boolean = false,
     showToggle: Boolean = true,
@@ -798,7 +827,7 @@ private fun SettingsPanel(
                 }
 
                 OptionRow(title = "Resolution") {
-                    ResolutionOption.entries.forEach { option ->
+                    resolutionOptions.forEach { option ->
                         FilterChip(
                             selected = settings.resolution == option,
                             onClick = { onSettingsChange(settings.copy(resolution = option)) },
@@ -806,6 +835,13 @@ private fun SettingsPanel(
                             label = { Text(option.label) },
                         )
                     }
+                }
+                resolutionOptionsStatus?.let { status ->
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 OptionRow(title = "FPS target") {
@@ -1355,7 +1391,9 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                 state.settings.cameraId,
                 state.settings.deviceId,
                 state.settings.serverUrl,
-                state.settings.resolution.name,
+                state.settings.resolution.label,
+                state.settings.resolution.width,
+                state.settings.resolution.height,
                 state.settings.fpsTarget,
                 state.settings.focusMode,
                 state.settings.focusLocked,
@@ -1396,42 +1434,46 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                     cameraId = values[1] as String,
                     deviceId = values[2] as String,
                     serverUrl = values[3] as String,
-                    resolution = ResolutionOption.valueOf(values[4] as String),
-                    fpsTarget = (values[5] as Number).toInt(),
-                    focusMode = values[6] as String,
-                    focusLocked = values[7] as Boolean,
-                    exposureLocked = values[8] as Boolean,
-                    whiteBalanceLocked = values[9] as Boolean,
-                    zoomDisabled = values[10] as Boolean,
-                    orientationDeg = (values[11] as Number).toInt(),
-                    manualExposureEnabled = values[12] as Boolean,
-                    iso = (values[13] as Number).toInt(),
-                    exposureTimeNs = (values[14] as Number).toLong(),
+                    resolution = ResolutionOption(
+                        label = values[4] as String,
+                        width = (values[5] as Number).toInt(),
+                        height = (values[6] as Number).toInt(),
+                    ),
+                    fpsTarget = (values[7] as Number).toInt(),
+                    focusMode = values[8] as String,
+                    focusLocked = values[9] as Boolean,
+                    exposureLocked = values[10] as Boolean,
+                    whiteBalanceLocked = values[11] as Boolean,
+                    zoomDisabled = values[12] as Boolean,
+                    orientationDeg = (values[13] as Number).toInt(),
+                    manualExposureEnabled = values[14] as Boolean,
+                    iso = (values[15] as Number).toInt(),
+                    exposureTimeNs = (values[16] as Number).toLong(),
                 ),
                 stats = CaptureStats(
-                    frameSequence = (values[15] as Number).toLong(),
-                    lastDeviceTimestampMs = (values[16] as Number?)?.toLong(),
-                    lastDeviceMonotonicNs = (values[17] as Number?)?.toLong(),
-                    sentCount = (values[18] as Number).toLong(),
-                    failedCount = (values[19] as Number).toLong(),
-                    droppedFrames = (values[20] as Number).toLong(),
-                    currentFps = (values[21] as Number).toFloat(),
+                    frameSequence = (values[17] as Number).toLong(),
+                    lastDeviceTimestampMs = (values[18] as Number?)?.toLong(),
+                    lastDeviceMonotonicNs = (values[19] as Number?)?.toLong(),
+                    sentCount = (values[20] as Number).toLong(),
+                    failedCount = (values[21] as Number).toLong(),
+                    droppedFrames = (values[22] as Number).toLong(),
+                    currentFps = (values[23] as Number).toFloat(),
                 ),
                 cameraControlStatus = CameraControlStatus(
-                    focusLockSupported = values[22] as Boolean?,
-                    focusLockApplied = values[23] as Boolean?,
-                    exposureLockSupported = values[24] as Boolean?,
-                    exposureLockApplied = values[25] as Boolean?,
-                    whiteBalanceLockSupported = values[26] as Boolean?,
-                    whiteBalanceLockApplied = values[27] as Boolean?,
-                    fpsTargetSupported = values[28] as Boolean?,
-                    resolutionSupported = values[29] as Boolean?,
-                    manualExposureSupported = values[30] as Boolean?,
-                    manualExposureApplied = values[31] as Boolean?,
-                    isoApplied = (values[32] as Number?)?.toInt(),
-                    exposureTimeNsApplied = (values[33] as Number?)?.toLong(),
-                    focalLengthMm = (values[34] as Number?)?.toFloat(),
-                    zoomSupported = values[35] as Boolean?,
+                    focusLockSupported = values[24] as Boolean?,
+                    focusLockApplied = values[25] as Boolean?,
+                    exposureLockSupported = values[26] as Boolean?,
+                    exposureLockApplied = values[27] as Boolean?,
+                    whiteBalanceLockSupported = values[28] as Boolean?,
+                    whiteBalanceLockApplied = values[29] as Boolean?,
+                    fpsTargetSupported = values[30] as Boolean?,
+                    resolutionSupported = values[31] as Boolean?,
+                    manualExposureSupported = values[32] as Boolean?,
+                    manualExposureApplied = values[33] as Boolean?,
+                    isoApplied = (values[34] as Number?)?.toInt(),
+                    exposureTimeNsApplied = (values[35] as Number?)?.toLong(),
+                    focalLengthMm = (values[36] as Number?)?.toFloat(),
+                    zoomSupported = values[37] as Boolean?,
                 ),
             )
         },
