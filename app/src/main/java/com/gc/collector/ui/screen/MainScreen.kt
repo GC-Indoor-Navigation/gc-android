@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -191,9 +192,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
             }
             if (loadedOptions.isNotEmpty()) {
                 resolutionOptions = loadedOptions
-                resolutionOptionsStatus = "supported by back camera"
+                resolutionOptionsStatus = "supported by back camera (${loadedOptions.size})"
                 if (settings.resolution !in loadedOptions) {
-                    uiState = uiState.copy(settings = settings.copy(resolution = loadedOptions.first()))
+                    uiState = uiState.copy(settings = settings.copy(resolution = loadedOptions.chooseFallbackResolution()))
                 }
             } else {
                 resolutionOptions = ResolutionOption.commonOptions
@@ -826,23 +827,13 @@ private fun SettingsPanel(
                     )
                 }
 
-                OptionRow(title = "Resolution") {
-                    resolutionOptions.forEach { option ->
-                        FilterChip(
-                            selected = settings.resolution == option,
-                            onClick = { onSettingsChange(settings.copy(resolution = option)) },
-                            enabled = !isCapturing,
-                            label = { Text(option.label) },
-                        )
-                    }
-                }
-                resolutionOptionsStatus?.let { status ->
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                ResolutionSelector(
+                    selectedResolution = settings.resolution,
+                    resolutionOptions = resolutionOptions,
+                    resolutionOptionsStatus = resolutionOptionsStatus,
+                    enabled = !isCapturing,
+                    onResolutionChange = { option -> onSettingsChange(settings.copy(resolution = option)) },
+                )
 
                 OptionRow(title = "FPS target") {
                     fpsOptions.forEach { fps ->
@@ -947,6 +938,102 @@ private fun SettingsPanel(
                             onSettingsChange(settings.copy(zoomDisabled = checked))
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResolutionSelector(
+    selectedResolution: ResolutionOption,
+    resolutionOptions: List<ResolutionOption>,
+    resolutionOptionsStatus: String?,
+    enabled: Boolean,
+    onResolutionChange: (ResolutionOption) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Resolution",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(
+            onClick = { expanded = !expanded },
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(selectedResolution.label)
+                Text(
+                    text = if (expanded) "Hide" else "Change",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        resolutionOptionsStatus?.let { status ->
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AnimatedVisibility(visible = expanded && enabled) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                tonalElevation = 1.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    resolutionOptions.forEach { option ->
+                        val selected = option == selectedResolution
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                    shape = RoundedCornerShape(6.dp),
+                                )
+                                .clickable {
+                                    onResolutionChange(option)
+                                    expanded = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = option.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                            if (selected) {
+                                Text(
+                                    text = "Selected",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1381,6 +1468,15 @@ private fun CameraCaptureSettings.summaryText(): String {
 private fun CaptureStats.summaryText(isCapturing: Boolean): String {
     val state = if (isCapturing) "running" else "stopped"
     return "$state, seq $frameSequence, ${"%.1f".format(currentFps)} FPS"
+}
+
+private fun List<ResolutionOption>.chooseFallbackResolution(): ResolutionOption {
+    return firstOrNull { option -> option == ResolutionOption.HD }
+        ?: minBy { option ->
+            val areaDiff = kotlin.math.abs((option.width * option.height) - (ResolutionOption.HD.width * ResolutionOption.HD.height))
+            val aspectDiff = kotlin.math.abs((option.width.toFloat() / option.height) - (16f / 9f))
+            areaDiff + (aspectDiff * 100_000).toInt()
+        }
 }
 
 private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
