@@ -39,6 +39,7 @@ import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.FrameMetadataFactory
 import com.gc.collector.model.ResolutionOption
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
 @Composable
 fun CameraPreview(
@@ -56,6 +57,9 @@ fun CameraPreview(
     val configuration = LocalConfiguration.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val targetRotation = configuration.toSurfaceRotation()
+    val targetFpsRange = remember(context, settings.fpsTarget) {
+        chooseBackCameraFpsRange(context, settings.fpsTarget)
+    }
     val previewView = remember {
         PreviewView(context).apply {
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -63,6 +67,7 @@ fun CameraPreview(
         }
     }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val currentControlStatus = rememberUpdatedState(controlStatus)
 
     LaunchedEffect(
@@ -75,6 +80,7 @@ fun CameraPreview(
         nextFrameSequence,
         onFrameCaptured,
         onCameraControlStatus,
+        targetFpsRange,
     ) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener(
@@ -103,6 +109,7 @@ fun CameraPreview(
                     previewBuilder.applyCaptureSettings(
                         settings = settings,
                         targetRotation = targetRotation,
+                        targetFpsRange = targetFpsRange,
                         captureCallback = captureCallback,
                     )
                     val preview = previewBuilder.build().also {
@@ -113,10 +120,11 @@ fun CameraPreview(
                     analysisBuilder.applyCaptureSettings(
                         settings = settings,
                         targetRotation = targetRotation,
+                        targetFpsRange = targetFpsRange,
                     )
                     val imageAnalysis = analysisBuilder.build()
                         .also { analysis ->
-                            analysis.setAnalyzer(mainExecutor) { imageProxy ->
+                            analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                 try {
                                     if (isAnalyzing) {
                                         val rotationDegrees = imageProxy.imageInfo.rotationDegrees
@@ -133,13 +141,14 @@ fun CameraPreview(
                                             imageProxy = imageProxy,
                                             rotationDegrees = rotationDegrees,
                                         )
-                                        onFrameCaptured(
-                                            CapturedFrame(
-                                                jpegBytes = jpegBytes,
-                                                metadata = metadata,
-                                                sensorTimestampNs = imageProxy.imageInfo.timestamp,
-                                            ),
+                                        val capturedFrame = CapturedFrame(
+                                            jpegBytes = jpegBytes,
+                                            metadata = metadata,
+                                            sensorTimestampNs = imageProxy.imageInfo.timestamp,
                                         )
+                                        mainExecutor.execute {
+                                            onFrameCaptured(capturedFrame)
+                                        }
                                     }
                                 } finally {
                                     imageProxy.close()
@@ -169,9 +178,10 @@ fun CameraPreview(
         )
     }
 
-    DisposableEffect(context) {
+    DisposableEffect(context, analysisExecutor) {
         onDispose {
             unbindCamera(context, mainExecutor)
+            analysisExecutor.shutdown()
         }
     }
 
@@ -186,12 +196,13 @@ fun CameraPreview(
 private fun Preview.Builder.applyCaptureSettings(
     settings: CameraCaptureSettings,
     targetRotation: Int,
+    targetFpsRange: Range<Int>,
     captureCallback: CameraCaptureSession.CaptureCallback,
 ) {
     setTargetResolution(settings.resolution.toSize(targetRotation))
     setTargetRotation(targetRotation)
     Camera2Interop.Extender(this).apply {
-        applyCommonCaptureSettings(settings)
+        applyCommonCaptureSettings(settings, targetFpsRange)
         setSessionCaptureCallback(captureCallback)
     }
 }
@@ -199,15 +210,19 @@ private fun Preview.Builder.applyCaptureSettings(
 private fun ImageAnalysis.Builder.applyCaptureSettings(
     settings: CameraCaptureSettings,
     targetRotation: Int,
+    targetFpsRange: Range<Int>,
 ) {
     setTargetResolution(settings.resolution.toSize(targetRotation))
     setTargetRotation(targetRotation)
     Camera2Interop.Extender(this).apply {
-        applyCommonCaptureSettings(settings)
+        applyCommonCaptureSettings(settings, targetFpsRange)
     }
 }
 
-private fun Camera2Interop.Extender<*>.applyCommonCaptureSettings(settings: CameraCaptureSettings) {
+private fun Camera2Interop.Extender<*>.applyCommonCaptureSettings(
+    settings: CameraCaptureSettings,
+    targetFpsRange: Range<Int>,
+) {
     if (settings.manualExposureEnabled) {
         setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
         setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, settings.iso)
@@ -223,7 +238,7 @@ private fun Camera2Interop.Extender<*>.applyCommonCaptureSettings(settings: Came
         setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
     }
     setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, settings.exposureLocked && !settings.manualExposureEnabled)
-    setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(settings.fpsTarget, settings.fpsTarget))
+    setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, targetFpsRange)
     setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, settings.whiteBalanceLocked)
 }
 
