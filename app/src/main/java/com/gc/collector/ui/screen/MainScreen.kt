@@ -86,6 +86,8 @@ import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.model.toMetadataState
 import com.gc.collector.network.GrpcFrameSender
+import com.gc.collector.network.InternalCalibrationUploader
+import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.SendResult
 import com.gc.collector.network.parseGrpcEndpoint
 import com.gc.collector.ui.camera.CameraPreview
@@ -141,9 +143,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
     var lastFpsWindowStartedNs by remember { mutableStateOf<Long?>(null) }
     var framesInCurrentWindow by remember { mutableStateOf(0) }
     var networkStatus by rememberSaveable { mutableStateOf("gRPC disconnected") }
+    var calibrationStatus by rememberSaveable { mutableStateOf("Calibration idle") }
+    var calibrationCaptureRequestId by rememberSaveable { mutableStateOf(0L) }
+    var calibrationUploadInProgress by rememberSaveable { mutableStateOf(false) }
     var resolutionOptions by remember { mutableStateOf(ResolutionOption.commonOptions) }
     var resolutionOptionsStatus by rememberSaveable { mutableStateOf("common resolution presets") }
     val frameSender = remember { GrpcFrameSender() }
+    val calibrationUploader = remember { InternalCalibrationUploader() }
     val coroutineScope = rememberCoroutineScope()
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -278,6 +284,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             isCapturing = uiState.isCapturing,
             settings = uiState.settings,
             sessionId = uiState.sessionId,
+            singleCaptureRequestId = calibrationCaptureRequestId,
             controlStatus = uiState.cameraControlStatus,
             nextFrameSequence = { uiState.stats.frameSequence + 1L },
             onFrameCaptured = { frame ->
@@ -336,6 +343,32 @@ fun MainScreen(modifier: Modifier = Modifier) {
                                     networkStatus = "gRPC stream not started"
                                 }
                             }
+                        }
+                    }
+                }
+            },
+            onSingleFrameCaptured = { frame ->
+                uiState = uiState.copy(
+                    stats = uiState.stats.copy(
+                        frameSequence = frame.metadata.frameSequence,
+                        lastDeviceTimestampMs = frame.metadata.deviceTimestampMs,
+                        lastDeviceMonotonicNs = frame.metadata.deviceMonotonicNs,
+                    ),
+                )
+
+                coroutineScope.launch(Dispatchers.IO) {
+                    val uploadResult = calibrationUploader.upload(
+                        baseUrl = settings.calibrationHttpBaseUrl,
+                        frame = frame,
+                    )
+                    withContext(Dispatchers.Main) {
+                        calibrationUploadInProgress = false
+                        calibrationStatus = when (uploadResult) {
+                            InternalCalibrationUploadResult.Uploaded ->
+                                "Calibration uploaded: ${frame.metadata.frameSequence}"
+
+                            is InternalCalibrationUploadResult.Failed ->
+                                "Calibration failed: ${uploadResult.message}"
                         }
                     }
                 }
@@ -408,6 +441,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 uiState = uiState.copy(isCapturing = false, sessionId = null)
                 networkStatus = "gRPC stopped"
             },
+            onSingleCapture = {
+                calibrationUploadInProgress = true
+                calibrationStatus = "Calibration capture requested"
+                calibrationCaptureRequestId += 1L
+            },
+            singleCaptureEnabled = hasCameraPermission && !uiState.isCapturing && !calibrationUploadInProgress,
+            singleCaptureInProgress = calibrationUploadInProgress,
             onToggleDetails = {
                 detailsPanelOpen = !detailsPanelOpen
             },
@@ -435,6 +475,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 isCapturing = uiState.isCapturing,
                 cameraStatus = cameraStatus,
                 networkStatus = networkStatus,
+                calibrationStatus = calibrationStatus,
                 controlStatus = uiState.cameraControlStatus,
                 isLandscape = true,
                 includeSettings = false,
@@ -461,6 +502,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     isCapturing = uiState.isCapturing,
                     cameraStatus = cameraStatus,
                     networkStatus = networkStatus,
+                    calibrationStatus = calibrationStatus,
                     controlStatus = uiState.cameraControlStatus,
                     isLandscape = false,
                     includeSettings = false,
@@ -627,6 +669,7 @@ private fun SlideDetailsPanel(
     isCapturing: Boolean,
     cameraStatus: String,
     networkStatus: String,
+    calibrationStatus: String,
     controlStatus: CameraControlStatus,
     isLandscape: Boolean,
     includeSettings: Boolean,
@@ -666,6 +709,7 @@ private fun SlideDetailsPanel(
                 isCapturing = isCapturing,
                 cameraStatus = cameraStatus,
                 networkStatus = networkStatus,
+                calibrationStatus = calibrationStatus,
                 controlStatus = controlStatus,
                 initiallyExpanded = true,
             )
@@ -682,9 +726,11 @@ private fun CameraPanel(
     isCapturing: Boolean,
     settings: CameraCaptureSettings,
     sessionId: String?,
+    singleCaptureRequestId: Long,
     controlStatus: CameraControlStatus,
     nextFrameSequence: () -> Long,
     onFrameCaptured: (CapturedFrame) -> Unit,
+    onSingleFrameCaptured: (CapturedFrame) -> Unit,
     onCameraControlStatus: (CameraControlStatus) -> Unit,
     onCameraReady: () -> Unit,
     onCameraError: (String) -> Unit,
@@ -701,9 +747,11 @@ private fun CameraPanel(
                 isAnalyzing = isCapturing,
                 settings = settings,
                 sessionId = sessionId,
+                singleCaptureRequestId = singleCaptureRequestId,
                 controlStatus = controlStatus,
                 nextFrameSequence = nextFrameSequence,
                 onFrameCaptured = onFrameCaptured,
+                onSingleFrameCaptured = onSingleFrameCaptured,
                 onCameraControlStatus = onCameraControlStatus,
                 onCameraReady = onCameraReady,
                 onCameraError = onCameraError,
@@ -821,6 +869,14 @@ private fun SettingsPanel(
                     enabled = !isCapturing,
                     singleLine = true,
                     label = { Text("gRPC endpoint") },
+                )
+                OutlinedTextField(
+                    value = settings.calibrationHttpBaseUrl,
+                    onValueChange = { onSettingsChange(settings.copy(calibrationHttpBaseUrl = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isCapturing,
+                    singleLine = true,
+                    label = { Text("Calibration HTTP URL") },
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1120,6 +1176,9 @@ private fun CaptureOverlayControls(
     isLandscape: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onSingleCapture: () -> Unit,
+    singleCaptureEnabled: Boolean,
+    singleCaptureInProgress: Boolean,
     onToggleDetails: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1145,6 +1204,14 @@ private fun CaptureOverlayControls(
                 PlayStopIcon(isCapturing = isCapturing)
             }
             TransparentCircleButton(
+                onClick = onSingleCapture,
+                size = buttonSize,
+                enabled = singleCaptureEnabled,
+                active = singleCaptureInProgress,
+            ) {
+                SingleCaptureIcon(active = singleCaptureInProgress)
+            }
+            TransparentCircleButton(
                 onClick = onToggleDetails,
                 size = buttonSize,
                 active = isDetailsOpen,
@@ -1166,6 +1233,14 @@ private fun CaptureOverlayControls(
                 PlayStopIcon(isCapturing = isCapturing)
             }
             TransparentCircleButton(
+                onClick = onSingleCapture,
+                size = buttonSize,
+                enabled = singleCaptureEnabled,
+                active = singleCaptureInProgress,
+            ) {
+                SingleCaptureIcon(active = singleCaptureInProgress)
+            }
+            TransparentCircleButton(
                 onClick = onToggleDetails,
                 size = buttonSize,
                 active = isDetailsOpen,
@@ -1182,19 +1257,22 @@ private fun TransparentCircleButton(
     size: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
     active: Boolean = false,
+    enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Surface(
-        onClick = onClick,
+        onClick = { if (enabled) onClick() },
         modifier = modifier.size(size),
         shape = CircleShape,
         color = if (active) {
             Color(0xCC1D4ED8)
+        } else if (!enabled) {
+            Color(0x33000000)
         } else {
             Color(0x66000000)
         },
-        contentColor = Color.White,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.42f)),
+        contentColor = if (enabled) Color.White else Color.White.copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = if (enabled) 0.42f else 0.20f)),
         shadowElevation = 0.dp,
     ) {
         Box(
@@ -1238,6 +1316,28 @@ private fun PlayStopIcon(
 }
 
 @Composable
+private fun SingleCaptureIcon(
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val iconColor = if (active) Color.White else Color(0xFFE8EEF3)
+    Canvas(modifier = modifier.size(28.dp)) {
+        val strokeWidth = size.width * 0.08f
+        drawCircle(
+            color = iconColor,
+            radius = size.width * 0.33f,
+            center = Offset(size.width * 0.5f, size.height * 0.5f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth),
+        )
+        drawCircle(
+            color = iconColor,
+            radius = size.width * if (active) 0.18f else 0.12f,
+            center = Offset(size.width * 0.5f, size.height * 0.5f),
+        )
+    }
+}
+
+@Composable
 private fun SettingsIcon(
     active: Boolean,
     modifier: Modifier = Modifier,
@@ -1266,6 +1366,7 @@ private fun StatusPanel(
     isCapturing: Boolean,
     cameraStatus: String,
     networkStatus: String,
+    calibrationStatus: String,
     controlStatus: CameraControlStatus,
     initiallyExpanded: Boolean = false,
     modifier: Modifier = Modifier,
@@ -1319,6 +1420,7 @@ private fun StatusPanel(
 
                 StatusSection(title = "Transport") {
                     StatusRow("Network", networkStatus)
+                    StatusRow("Calibration upload", calibrationStatus)
                     StatusRow("Sent / failed", "${stats.sentCount} / ${stats.failedCount}")
                     StatusRow("Dropped frames", stats.droppedFrames.toString())
                 }
@@ -1539,6 +1641,7 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                 state.cameraControlStatus.focalLengthMm,
                 state.cameraControlStatus.zoomSupported,
                 state.sessionId,
+                state.settings.calibrationHttpBaseUrl,
             )
         },
         restore = { values ->
@@ -1548,6 +1651,7 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                     cameraId = values[1] as String,
                     deviceId = values[2] as String,
                     serverUrl = values[3] as String,
+                    calibrationHttpBaseUrl = values.getOrNull(39) as? String ?: CameraCaptureSettings().calibrationHttpBaseUrl,
                     resolution = ResolutionOption(
                         label = values[4] as String,
                         width = (values[5] as Number).toInt(),

@@ -40,6 +40,7 @@ import com.gc.collector.model.FrameMetadataFactory
 import com.gc.collector.model.ResolutionOption
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 @Composable
 fun CameraPreview(
@@ -47,9 +48,11 @@ fun CameraPreview(
     isAnalyzing: Boolean,
     settings: CameraCaptureSettings,
     sessionId: String?,
+    singleCaptureRequestId: Long,
     nextFrameSequence: () -> Long,
     controlStatus: CameraControlStatus,
     onFrameCaptured: (CapturedFrame) -> Unit,
+    onSingleFrameCaptured: (CapturedFrame) -> Unit,
     onCameraControlStatus: (CameraControlStatus) -> Unit,
     onCameraReady: () -> Unit,
     onCameraError: (String) -> Unit,
@@ -70,6 +73,9 @@ fun CameraPreview(
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val currentControlStatus = rememberUpdatedState(controlStatus)
+    val currentSingleCaptureRequestId = rememberUpdatedState(singleCaptureRequestId)
+    val currentOnSingleFrameCaptured = rememberUpdatedState(onSingleFrameCaptured)
+    val handledSingleCaptureRequestId = remember { AtomicLong(0L) }
 
     LaunchedEffect(
         context,
@@ -128,14 +134,21 @@ fun CameraPreview(
                         .also { analysis ->
                             analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                 try {
-                                    if (isAnalyzing) {
+                                    val requestId = currentSingleCaptureRequestId.value
+                                    val shouldCaptureSingleFrame = requestId > 0L &&
+                                        handledSingleCaptureRequestId.get() != requestId
+                                    if (shouldCaptureSingleFrame) {
+                                        handledSingleCaptureRequestId.set(requestId)
+                                    }
+
+                                    if (isAnalyzing || shouldCaptureSingleFrame) {
                                         val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                                         val frameSize = imageProxy.rotatedSize(rotationDegrees)
                                         val metadata = FrameMetadataFactory.create(
                                             settings = settings,
                                             controlStatus = currentControlStatus.value,
                                             frameSequence = nextFrameSequence(),
-                                            sessionId = sessionId,
+                                            sessionId = if (shouldCaptureSingleFrame) null else sessionId,
                                             width = frameSize.width,
                                             height = frameSize.height,
                                             orientationDeg = rotationDegrees,
@@ -150,7 +163,11 @@ fun CameraPreview(
                                             sensorTimestampNs = imageProxy.imageInfo.timestamp,
                                         )
                                         mainExecutor.execute {
-                                            onFrameCaptured(capturedFrame)
+                                            if (shouldCaptureSingleFrame) {
+                                                currentOnSingleFrameCaptured.value(capturedFrame)
+                                            } else {
+                                                onFrameCaptured(capturedFrame)
+                                            }
                                         }
                                     }
                                 } finally {
