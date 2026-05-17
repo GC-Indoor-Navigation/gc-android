@@ -1203,14 +1203,12 @@ private fun CaptureOverlayControls(
             ) {
                 PlayStopIcon(isCapturing = isCapturing)
             }
-            TransparentCircleButton(
+            SingleCaptureButton(
                 onClick = onSingleCapture,
                 size = buttonSize,
                 enabled = singleCaptureEnabled,
-                active = singleCaptureInProgress,
-            ) {
-                SingleCaptureIcon(active = singleCaptureInProgress)
-            }
+                inProgress = singleCaptureInProgress,
+            )
             TransparentCircleButton(
                 onClick = onToggleDetails,
                 size = buttonSize,
@@ -1232,20 +1230,56 @@ private fun CaptureOverlayControls(
             ) {
                 PlayStopIcon(isCapturing = isCapturing)
             }
-            TransparentCircleButton(
+            SingleCaptureButton(
                 onClick = onSingleCapture,
                 size = buttonSize,
                 enabled = singleCaptureEnabled,
-                active = singleCaptureInProgress,
-            ) {
-                SingleCaptureIcon(active = singleCaptureInProgress)
-            }
+                inProgress = singleCaptureInProgress,
+            )
             TransparentCircleButton(
                 onClick = onToggleDetails,
                 size = buttonSize,
                 active = isDetailsOpen,
             ) {
                 SettingsIcon(active = isDetailsOpen)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SingleCaptureButton(
+    onClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp,
+    enabled: Boolean,
+    inProgress: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = { if (enabled) onClick() },
+        modifier = modifier.size(size),
+        shape = CircleShape,
+        color = when {
+            !enabled -> Color.White.copy(alpha = 0.36f)
+            inProgress -> Color.White.copy(alpha = 0.76f)
+            else -> Color.White.copy(alpha = 0.92f)
+        },
+        contentColor = Color.Black,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f)),
+        shadowElevation = 0.dp,
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (inProgress) {
+                Canvas(modifier = Modifier.size(size * 0.58f)) {
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.42f),
+                        radius = this.size.width * 0.28f,
+                        center = Offset(this.size.width * 0.5f, this.size.height * 0.5f),
+                    )
+                }
             }
         }
     }
@@ -1312,28 +1346,6 @@ private fun PlayStopIcon(
             }
             drawPath(path = path, color = Color.White)
         }
-    }
-}
-
-@Composable
-private fun SingleCaptureIcon(
-    active: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val iconColor = if (active) Color.White else Color(0xFFE8EEF3)
-    Canvas(modifier = modifier.size(28.dp)) {
-        val strokeWidth = size.width * 0.08f
-        drawCircle(
-            color = iconColor,
-            radius = size.width * 0.33f,
-            center = Offset(size.width * 0.5f, size.height * 0.5f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth),
-        )
-        drawCircle(
-            color = iconColor,
-            radius = size.width * if (active) 0.18f else 0.12f,
-            center = Offset(size.width * 0.5f, size.height * 0.5f),
-        )
     }
 }
 
