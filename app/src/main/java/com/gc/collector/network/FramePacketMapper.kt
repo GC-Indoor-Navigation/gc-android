@@ -41,6 +41,7 @@ fun CapturedFrame.toFramePacket(): GrpcFramePacket {
             exposureTimeNsRequested = source.exposureTimeNsRequested,
             exposureTimeNsApplied = source.exposureTimeNsApplied,
             focalLengthMm = source.focalLengthMm,
+            sessionId = source.sessionId,
         ),
         jpegBytes = jpegBytes,
     )

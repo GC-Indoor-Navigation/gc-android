@@ -70,6 +70,7 @@ data class GrpcFrameMetadata(
     val exposureTimeNsRequested: Long,
     val exposureTimeNsApplied: Long?,
     val focalLengthMm: Float?,
+    val sessionId: String?,
 ) {
     fun toByteArray(): ByteArray {
         return protoBytes {
@@ -108,6 +109,7 @@ data class GrpcFrameMetadata(
             writeInt64(33, exposureTimeNsRequested)
             exposureTimeNsApplied?.let { writeInt64(34, it) }
             focalLengthMm?.let { writeFloat(35, it) }
+            sessionId?.let { writeString(36, it) }
         }
     }
 }

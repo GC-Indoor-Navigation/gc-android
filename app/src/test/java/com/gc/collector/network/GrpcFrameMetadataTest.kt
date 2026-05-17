@@ -44,6 +44,7 @@ class GrpcFrameMetadataTest {
             exposureTimeNsRequested = 10_000_000L,
             exposureTimeNsApplied = 10_000_000L,
             focalLengthMm = 5.4f,
+            sessionId = "device_01_2026-05-17T14-32-10-123",
         ).toByteArray()
 
         val parsed = parseFields(bytes)
@@ -55,6 +56,7 @@ class GrpcFrameMetadataTest {
         assertEquals(10_000_000L, parsed[33])
         assertEquals(10_000_000L, parsed[34])
         assertEquals(5.4f, parsed[35] as Float, 0.0001f)
+        assertEquals("device_01_2026-05-17T14-32-10-123", parsed[36])
     }
 
     private fun parseFields(bytes: ByteArray): Map<Int, Any> {
@@ -73,6 +75,7 @@ class GrpcFrameMetadataTest {
                 33 -> values[field] = input.readInt64()
                 34 -> values[field] = input.readInt64()
                 35 -> values[field] = input.readFloat()
+                36 -> values[field] = input.readString()
                 else -> input.skipField(tag)
             }
         }

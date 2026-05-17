@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.res.Configuration
 import android.os.SystemClock
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -81,6 +82,7 @@ import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.ResolutionOption
+import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.model.toMetadataState
 import com.gc.collector.network.GrpcFrameSender
@@ -94,6 +96,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val fpsOptions = listOf(5, 10, 15, 30)
+private const val collectorLogTag = "GcCollector"
 
 private enum class CollectorScreen {
     ModeSelection,
@@ -169,7 +172,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !detailsPanelOpen) {
         frameSender.stop()
         currentScreenName = CollectorScreen.CameraSetup.name
-        uiState = uiState.copy(isCapturing = false)
+        uiState = uiState.copy(isCapturing = false, sessionId = null)
         networkStatus = "gRPC stopped"
     }
 
@@ -274,6 +277,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             },
             isCapturing = uiState.isCapturing,
             settings = uiState.settings,
+            sessionId = uiState.sessionId,
             controlStatus = uiState.cameraControlStatus,
             nextFrameSequence = { uiState.stats.frameSequence + 1L },
             onFrameCaptured = { frame ->
@@ -354,6 +358,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             onStart = {
                 val nowMs = System.currentTimeMillis()
                 val nowNs = SystemClock.elapsedRealtimeNanos()
+                val sessionId = SessionIdFactory.create(settings.deviceId, nowMs)
                 parseGrpcEndpoint(settings.serverUrl)
                     .onSuccess { endpoint ->
                         runCatching {
@@ -363,9 +368,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
                                 usePlaintext = endpoint.usePlaintext,
                             )
                         }.onSuccess {
+                            Log.i(collectorLogTag, "Collector session started: $sessionId")
                             networkStatus = "gRPC connected to ${endpoint.host}:${endpoint.port}"
                             uiState = uiState.copy(
                                 isCapturing = true,
+                                sessionId = sessionId,
                                 stats = stats.copy(
                                     frameSequence = 0L,
                                     lastDeviceTimestampMs = nowMs,
@@ -382,6 +389,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             networkStatus = error.message ?: "Failed to start gRPC stream"
                             uiState = uiState.copy(
                                 isCapturing = false,
+                                sessionId = null,
                                 stats = stats.copy(failedCount = stats.failedCount + 1L),
                             )
                         }
@@ -390,13 +398,14 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         networkStatus = error.message ?: "Invalid gRPC endpoint"
                         uiState = uiState.copy(
                             isCapturing = false,
+                            sessionId = null,
                             stats = stats.copy(failedCount = stats.failedCount + 1L),
                         )
                     }
             },
             onStop = {
                 frameSender.stop()
-                uiState = uiState.copy(isCapturing = false)
+                uiState = uiState.copy(isCapturing = false, sessionId = null)
                 networkStatus = "gRPC stopped"
             },
             onToggleDetails = {
@@ -422,6 +431,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         .padding(vertical = 0.dp, horizontal = 0.dp),
                 settings = settings,
                 stats = stats,
+                sessionId = uiState.sessionId,
                 isCapturing = uiState.isCapturing,
                 cameraStatus = cameraStatus,
                 networkStatus = networkStatus,
@@ -447,6 +457,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         .fillMaxHeight(0.58f),
                     settings = settings,
                     stats = stats,
+                    sessionId = uiState.sessionId,
                     isCapturing = uiState.isCapturing,
                     cameraStatus = cameraStatus,
                     networkStatus = networkStatus,
@@ -612,6 +623,7 @@ private fun UseModePlaceholderScreen(
 private fun SlideDetailsPanel(
     settings: CameraCaptureSettings,
     stats: CaptureStats,
+    sessionId: String?,
     isCapturing: Boolean,
     cameraStatus: String,
     networkStatus: String,
@@ -650,6 +662,7 @@ private fun SlideDetailsPanel(
             StatusPanel(
                 settings = settings,
                 stats = stats,
+                sessionId = sessionId,
                 isCapturing = isCapturing,
                 cameraStatus = cameraStatus,
                 networkStatus = networkStatus,
@@ -668,6 +681,7 @@ private fun CameraPanel(
     onRequestPermission: () -> Unit,
     isCapturing: Boolean,
     settings: CameraCaptureSettings,
+    sessionId: String?,
     controlStatus: CameraControlStatus,
     nextFrameSequence: () -> Long,
     onFrameCaptured: (CapturedFrame) -> Unit,
@@ -686,6 +700,7 @@ private fun CameraPanel(
                 modifier = Modifier.fillMaxSize(),
                 isAnalyzing = isCapturing,
                 settings = settings,
+                sessionId = sessionId,
                 controlStatus = controlStatus,
                 nextFrameSequence = nextFrameSequence,
                 onFrameCaptured = onFrameCaptured,
@@ -1247,6 +1262,7 @@ private fun SettingsIcon(
 private fun StatusPanel(
     settings: CameraCaptureSettings,
     stats: CaptureStats,
+    sessionId: String?,
     isCapturing: Boolean,
     cameraStatus: String,
     networkStatus: String,
@@ -1293,6 +1309,7 @@ private fun StatusPanel(
             if (expanded) {
                 StatusSection(title = "Capture") {
                     StatusRow("State", if (isCapturing) "running" else "stopped")
+                    StatusRow("Session ID", sessionId ?: "-")
                     StatusRow("Camera", cameraStatus)
                     StatusRow("Frame sequence", stats.frameSequence.toString())
                     StatusRow("Last timestamp ms", stats.lastDeviceTimestampMs?.toString() ?: "-")
@@ -1521,6 +1538,7 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                 state.cameraControlStatus.exposureTimeNsApplied,
                 state.cameraControlStatus.focalLengthMm,
                 state.cameraControlStatus.zoomSupported,
+                state.sessionId,
             )
         },
         restore = { values ->
@@ -1571,6 +1589,7 @@ private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
                     focalLengthMm = (values[36] as Number?)?.toFloat(),
                     zoomSupported = values[37] as Boolean?,
                 ),
+                sessionId = values.getOrNull(38) as String?,
             )
         },
     )

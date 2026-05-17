@@ -11,6 +11,8 @@ data class FrameMetadata(
     val deviceId: String,
     @SerialName("frame_sequence")
     val frameSequence: Long,
+    @SerialName("session_id")
+    val sessionId: String?,
     @SerialName("device_timestamp_ms")
     val deviceTimestampMs: Long,
     @SerialName("device_monotonic_ns")
