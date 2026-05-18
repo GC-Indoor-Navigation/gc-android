@@ -34,6 +34,7 @@ import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.FpsCalculator
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.SessionIdFactory
+import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.network.FrameSendResultReducer
 import com.gc.collector.network.GrpcFrameSender
@@ -130,9 +131,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !detailsPanelOpen) {
         frameSender.stop()
+        val nextState = StreamSessionStateReducer.stopped(uiState)
         currentScreenName = CollectorScreen.CameraSetup.name
-        uiState = uiState.copy(isCapturing = false, sessionId = null)
-        networkStatus = "gRPC stopped"
+        uiState = nextState.uiState
+        networkStatus = nextState.networkStatus
     }
 
     DisposableEffect(Unit) {
@@ -313,44 +315,41 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         )
                     }.onSuccess {
                         Log.i(collectorLogTag, "Collector session started: $sessionId")
-                        networkStatus = "gRPC connected to ${endpoint.host}:${endpoint.port}"
-                        uiState = uiState.copy(
-                            isCapturing = true,
+                        val nextState = StreamSessionStateReducer.startSucceeded(
+                            state = uiState,
                             sessionId = sessionId,
-                            stats = stats.copy(
-                                frameSequence = 0L,
-                                lastDeviceTimestampMs = nowMs,
-                                lastDeviceMonotonicNs = nowNs,
-                                sentCount = 0L,
-                                failedCount = 0L,
-                                droppedFrames = 0L,
-                                currentFps = 0f,
-                            ),
+                            deviceTimestampMs = nowMs,
+                            deviceMonotonicNs = nowNs,
+                            endpointHost = endpoint.host,
+                            endpointPort = endpoint.port,
                         )
+                        networkStatus = nextState.networkStatus
+                        uiState = nextState.uiState
                         lastFpsWindowStartedNs = null
                         framesInCurrentWindow = 0
                     }.onFailure { error ->
-                        networkStatus = error.message ?: "Failed to start gRPC stream"
-                        uiState = uiState.copy(
-                            isCapturing = false,
-                            sessionId = null,
-                            stats = stats.copy(failedCount = stats.failedCount + 1L),
+                        val nextState = StreamSessionStateReducer.startFailed(
+                            state = uiState,
+                            message = error.message ?: "Failed to start gRPC stream",
                         )
+                        networkStatus = nextState.networkStatus
+                        uiState = nextState.uiState
                     }
                 }
                 .onFailure { error ->
-                    networkStatus = error.message ?: "Invalid gRPC endpoint"
-                    uiState = uiState.copy(
-                        isCapturing = false,
-                        sessionId = null,
-                        stats = stats.copy(failedCount = stats.failedCount + 1L),
+                    val nextState = StreamSessionStateReducer.startFailed(
+                        state = uiState,
+                        message = error.message ?: "Invalid gRPC endpoint",
                     )
+                    networkStatus = nextState.networkStatus
+                    uiState = nextState.uiState
                 }
         },
         onStop = {
             frameSender.stop()
-            uiState = uiState.copy(isCapturing = false, sessionId = null)
-            networkStatus = "gRPC stopped"
+            val nextState = StreamSessionStateReducer.stopped(uiState)
+            uiState = nextState.uiState
+            networkStatus = nextState.networkStatus
         },
         onSingleCapture = {
             val nextState = CalibrationCaptureStateReducer.requestCapture(calibrationCaptureState)
