@@ -1,16 +1,11 @@
 package com.gc.collector.ui.screen
 
 import android.Manifest
-import android.app.Activity
 import android.content.res.Configuration
-import android.os.SystemClock
-import android.util.Log
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,41 +21,18 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStoreOwner
-import com.gc.collector.model.CameraCaptureSettings
-import com.gc.collector.model.CameraControlStatus
-import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.toAppliedState
-import com.gc.collector.network.GrpcFrameSender
-import com.gc.collector.network.InternalCalibrationUploader
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
 import com.gc.collector.ui.theme.GcandroidTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-private const val collectorLogTag = "GcCollector"
 
 private enum class CollectorScreen {
     ModeSelection,
     CameraSetup,
     CameraCapture,
     UseMode,
-}
-
-@Composable
-private fun KeepScreenOn(enabled: Boolean) {
-    val activity = LocalContext.current as? Activity
-    DisposableEffect(activity, enabled) {
-        if (enabled) {
-            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        } else {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-
-        onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
 }
 
 @Composable
@@ -82,7 +54,6 @@ fun MainScreen(
     var currentScreenName by rememberSaveable { mutableStateOf(CollectorScreen.ModeSelection.name) }
     val screenState by collectorViewModel.screenState.collectAsState()
     val uiState = screenState.collectorUiState
-    val cameraCaptureUiState = screenState.cameraCaptureUiState
     val currentScreen = CollectorScreen.valueOf(currentScreenName)
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -91,8 +62,6 @@ fun MainScreen(
     }
     var resolutionOptions by remember { mutableStateOf(ResolutionOption.commonOptions) }
     var resolutionOptionsStatus by rememberSaveable { mutableStateOf("common resolution presets") }
-    val frameSender = remember { GrpcFrameSender() }
-    val calibrationUploader = remember { InternalCalibrationUploader() }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
@@ -101,29 +70,9 @@ fun MainScreen(
         },
     )
     val settings = uiState.settings
-    val stats = uiState.stats
-
-    KeepScreenOn(enabled = currentScreen == CollectorScreen.CameraCapture)
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraSetup || currentScreen == CollectorScreen.UseMode) {
         currentScreenName = CollectorScreen.ModeSelection.name
-    }
-
-    BackHandler(enabled = cameraCaptureUiState.detailsPanelOpen) {
-        collectorViewModel.onCloseDetailsPanel()
-    }
-
-    BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !cameraCaptureUiState.detailsPanelOpen) {
-        collectorViewModel.onStreamStopRequested {
-            frameSender.stop()
-        }
-        currentScreenName = CollectorScreen.CameraSetup.name
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            frameSender.stop()
-        }
     }
 
     LaunchedEffect(Unit) {
@@ -193,85 +142,16 @@ fun MainScreen(
         CollectorScreen.CameraCapture -> Unit
     }
 
-    CameraCaptureScreen(
+    CameraCaptureRoute(
         modifier = modifier,
-        settings = settings,
-        stats = stats,
-        sessionId = uiState.sessionId,
+        screenState = screenState,
         hasCameraPermission = hasCameraPermission,
-        cameraStatus = cameraCaptureUiState.cameraStatus,
-        networkStatus = cameraCaptureUiState.networkStatus,
-        calibrationStatus = cameraCaptureUiState.calibrationStatus,
-        controlStatus = uiState.cameraControlStatus,
-        isCapturing = uiState.isCapturing,
-        isDetailsOpen = cameraCaptureUiState.detailsPanelOpen,
         isLandscape = isLandscape,
-        singleCaptureRequestId = cameraCaptureUiState.singleCaptureRequestId,
-        singleCaptureEnabled = cameraCaptureUiState.singleCaptureEnabled(
-            hasCameraPermission = hasCameraPermission,
-            isCapturing = uiState.isCapturing,
-        ),
-        singleCaptureInProgress = cameraCaptureUiState.singleCaptureInProgress,
-        nextFrameSequence = { uiState.stats.frameSequence + 1L },
+        collectorViewModel = collectorViewModel,
         onRequestCameraPermission = {
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         },
-        onFrameCaptured = { frame ->
-            collectorViewModel.onRuntimeFrameCaptured(frame) { capturedFrame ->
-                frameSender.send(capturedFrame)
-            }
-        },
-        onSingleFrameCaptured = { frame ->
-            collectorViewModel.onCalibrationFrameCaptured(frame) { capturedFrame ->
-                calibrationUploader.upload(
-                    baseUrl = settings.calibrationHttpBaseUrl,
-                    frame = capturedFrame,
-                )
-            }
-        },
-        onCameraReady = {
-            collectorViewModel.onCameraReady()
-        },
-        onCameraControlStatus = { status ->
-            collectorViewModel.onCameraControlStatus(status)
-        },
-        onCameraError = { message ->
-            collectorViewModel.onCameraError(message)
-        },
-        onStart = {
-            val nowMs = System.currentTimeMillis()
-            val nowNs = SystemClock.elapsedRealtimeNanos()
-            collectorViewModel.onStreamStartRequested(
-                deviceTimestampMs = nowMs,
-                deviceMonotonicNs = nowNs,
-                startStream = { endpoint ->
-                    runCatching {
-                        frameSender.start(
-                            host = endpoint.host,
-                            port = endpoint.port,
-                            usePlaintext = endpoint.usePlaintext,
-                        )
-                    }
-                },
-                onSessionStarted = { sessionId ->
-                    Log.i(collectorLogTag, "Collector session started: $sessionId")
-                },
-            )
-        },
-        onStop = {
-            collectorViewModel.onStreamStopRequested {
-                frameSender.stop()
-            }
-        },
-        onSingleCapture = {
-            collectorViewModel.onSingleCaptureRequested()
-        },
-        onToggleDetails = {
-            collectorViewModel.onToggleDetailsPanel()
-        },
-        onSettingsChange = { updated ->
-            collectorViewModel.updateCollectorUiState { state -> state.copy(settings = updated) }
-        },
+        onExitCapture = { currentScreenName = CollectorScreen.CameraSetup.name },
     )
 }
 
