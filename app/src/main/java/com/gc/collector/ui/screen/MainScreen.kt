@@ -495,38 +495,6 @@ fun MainScreen(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun UseModePlaceholderScreen(
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .safeDrawingPadding()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = "Use Mode",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = "This mode will be connected after the capture pipeline is complete.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        OutlinedButton(onClick = onBack) {
-            Text("Back")
-        }
-    }
-}
-
-@Composable
 private fun SlideDetailsPanel(
     settings: CameraCaptureSettings,
     stats: CaptureStats,
