@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,12 +25,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStoreOwner
 import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationCaptureStateReducer
-import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CaptureStats
-import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.model.SessionIdFactory
@@ -72,17 +73,25 @@ private fun KeepScreenOn(enabled: Boolean) {
 }
 
 @Composable
-fun MainScreen(modifier: Modifier = Modifier) {
+fun MainScreen(
+    modifier: Modifier = Modifier,
+    providedCollectorViewModel: CollectorViewModel? = null,
+) {
     val context = LocalContext.current
+    val collectorViewModel = providedCollectorViewModel ?: remember(context) {
+        val owner = context as? ViewModelStoreOwner
+        if (owner != null) {
+            ViewModelProvider(owner)[CollectorViewModel::class.java]
+        } else {
+            CollectorViewModel()
+        }
+    }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var currentScreenName by rememberSaveable { mutableStateOf(CollectorScreen.ModeSelection.name) }
-    var uiState by rememberSaveable(stateSaver = collectorUiStateSaver()) {
-        mutableStateOf(CollectorUiState())
-    }
-    var cameraCaptureUiState by rememberSaveable(stateSaver = cameraCaptureUiStateSaver()) {
-        mutableStateOf(CameraCaptureUiState())
-    }
+    val screenState by collectorViewModel.screenState.collectAsState()
+    val uiState = screenState.collectorUiState
+    val cameraCaptureUiState = screenState.cameraCaptureUiState
     val currentScreen = CollectorScreen.valueOf(currentScreenName)
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -100,7 +109,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
             hasCameraPermission = granted
-            cameraCaptureUiState = cameraCaptureUiState.withCameraPermissionResult(granted)
+            collectorViewModel.updateCameraCaptureUiState { state ->
+                state.withCameraPermissionResult(granted)
+            }
         },
     )
     val settings = uiState.settings
@@ -113,15 +124,19 @@ fun MainScreen(modifier: Modifier = Modifier) {
     }
 
     BackHandler(enabled = cameraCaptureUiState.detailsPanelOpen) {
-        cameraCaptureUiState = cameraCaptureUiState.closeDetailsPanel()
+        collectorViewModel.updateCameraCaptureUiState { state ->
+            state.closeDetailsPanel()
+        }
     }
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !cameraCaptureUiState.detailsPanelOpen) {
         frameSender.stop()
         val nextState = StreamSessionStateReducer.stopped(uiState)
         currentScreenName = CollectorScreen.CameraSetup.name
-        uiState = nextState.uiState
-        cameraCaptureUiState = cameraCaptureUiState.withNetworkStatus(nextState.networkStatus)
+        collectorViewModel.setCollectorUiState(nextState.uiState)
+        collectorViewModel.updateCameraCaptureUiState { state ->
+            state.withNetworkStatus(nextState.networkStatus)
+        }
     }
 
     DisposableEffect(Unit) {
@@ -145,7 +160,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 resolutionOptions = loadedOptions
                 resolutionOptionsStatus = "supported by back camera (${loadedOptions.size})"
                 if (settings.resolution !in loadedOptions) {
-                    uiState = uiState.copy(settings = settings.copy(resolution = loadedOptions.chooseFallbackResolution()))
+                    collectorViewModel.updateCollectorUiState { state ->
+                        state.copy(settings = state.settings.copy(resolution = loadedOptions.chooseFallbackResolution()))
+                    }
                 }
             } else {
                 resolutionOptions = ResolutionOption.commonOptions
@@ -170,7 +187,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 settings = settings,
                 resolutionOptions = resolutionOptions,
                 resolutionOptionsStatus = resolutionOptionsStatus,
-                onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
+                onSettingsChange = { updated ->
+                    collectorViewModel.updateCollectorUiState { state -> state.copy(settings = updated) }
+                },
                 onBack = { currentScreenName = CollectorScreen.ModeSelection.name },
                 onContinue = {
                     currentScreenName = CollectorScreen.CameraCapture.name
@@ -227,29 +246,33 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 )
                 lastFpsWindowStartedNs = nextFrameState.fpsWindowStartedNs
                 framesInCurrentWindow = nextFrameState.framesInWindow
-                uiState = uiState.copy(stats = nextFrameState.stats)
+                val collectorStateAfterCapture = uiState.copy(stats = nextFrameState.stats)
+                collectorViewModel.setCollectorUiState(collectorStateAfterCapture)
 
                 coroutineScope.launch(Dispatchers.IO) {
                     val sendResult = frameSender.send(frame)
                     withContext(Dispatchers.Main) {
+                        val currentState = collectorViewModel.screenState.value
                         val nextState = FrameSendUiStateReducer.reduce(
-                            collectorUiState = uiState,
-                            cameraCaptureUiState = cameraCaptureUiState,
+                            collectorUiState = currentState.collectorUiState,
+                            cameraCaptureUiState = currentState.cameraCaptureUiState,
                             result = sendResult,
                         )
-                        uiState = nextState.collectorUiState
-                        cameraCaptureUiState = nextState.cameraCaptureUiState
+                        collectorViewModel.setCollectorUiState(nextState.collectorUiState)
+                        collectorViewModel.setCameraCaptureUiState(nextState.cameraCaptureUiState)
                     }
                 }
             }
         },
         onSingleFrameCaptured = { frame ->
-            uiState = uiState.copy(
-                stats = CalibrationCaptureStateReducer.applyCapturedFrame(
-                    stats = uiState.stats,
-                    metadata = frame.metadata,
-                ),
-            )
+            collectorViewModel.updateCollectorUiState { state ->
+                state.copy(
+                    stats = CalibrationCaptureStateReducer.applyCapturedFrame(
+                        stats = state.stats,
+                        metadata = frame.metadata,
+                    ),
+                )
+            }
 
             coroutineScope.launch(Dispatchers.IO) {
                 val uploadResult = calibrationUploader.upload(
@@ -257,21 +280,29 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     frame = frame,
                 )
                 withContext(Dispatchers.Main) {
-                    cameraCaptureUiState = cameraCaptureUiState.completeCalibrationUpload(
-                        frameSequence = frame.metadata.frameSequence,
-                        outcome = InternalCalibrationUploadOutcomeMapper.toOutcome(uploadResult),
-                    )
+                    collectorViewModel.updateCameraCaptureUiState { state ->
+                        state.completeCalibrationUpload(
+                            frameSequence = frame.metadata.frameSequence,
+                            outcome = InternalCalibrationUploadOutcomeMapper.toOutcome(uploadResult),
+                        )
+                    }
                 }
             }
         },
         onCameraReady = {
-            cameraCaptureUiState = cameraCaptureUiState.withCameraReady()
+            collectorViewModel.updateCameraCaptureUiState { state ->
+                state.withCameraReady()
+            }
         },
         onCameraControlStatus = { status ->
-            uiState = uiState.copy(cameraControlStatus = status)
+            collectorViewModel.updateCollectorUiState { state ->
+                state.copy(cameraControlStatus = status)
+            }
         },
         onCameraError = { message ->
-            cameraCaptureUiState = cameraCaptureUiState.withCameraError(message)
+            collectorViewModel.updateCameraCaptureUiState { state ->
+                state.withCameraError(message)
+            }
         },
         onStart = {
             val nowMs = System.currentTimeMillis()
@@ -295,8 +326,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             endpointHost = endpoint.host,
                             endpointPort = endpoint.port,
                         )
-                        cameraCaptureUiState = cameraCaptureUiState.withNetworkStatus(nextState.networkStatus)
-                        uiState = nextState.uiState
+                        collectorViewModel.updateCameraCaptureUiState { state ->
+                            state.withNetworkStatus(nextState.networkStatus)
+                        }
+                        collectorViewModel.setCollectorUiState(nextState.uiState)
                         lastFpsWindowStartedNs = null
                         framesInCurrentWindow = 0
                     }.onFailure { error ->
@@ -304,8 +337,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             state = uiState,
                             message = error.message ?: "Failed to start gRPC stream",
                         )
-                        cameraCaptureUiState = cameraCaptureUiState.withNetworkStatus(nextState.networkStatus)
-                        uiState = nextState.uiState
+                        collectorViewModel.updateCameraCaptureUiState { state ->
+                            state.withNetworkStatus(nextState.networkStatus)
+                        }
+                        collectorViewModel.setCollectorUiState(nextState.uiState)
                     }
                 }
                 .onFailure { error ->
@@ -313,23 +348,33 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         state = uiState,
                         message = error.message ?: "Invalid gRPC endpoint",
                     )
-                    cameraCaptureUiState = cameraCaptureUiState.withNetworkStatus(nextState.networkStatus)
-                    uiState = nextState.uiState
+                    collectorViewModel.updateCameraCaptureUiState { state ->
+                        state.withNetworkStatus(nextState.networkStatus)
+                    }
+                    collectorViewModel.setCollectorUiState(nextState.uiState)
                 }
         },
         onStop = {
             frameSender.stop()
             val nextState = StreamSessionStateReducer.stopped(uiState)
-            uiState = nextState.uiState
-            cameraCaptureUiState = cameraCaptureUiState.withNetworkStatus(nextState.networkStatus)
+            collectorViewModel.setCollectorUiState(nextState.uiState)
+            collectorViewModel.updateCameraCaptureUiState { state ->
+                state.withNetworkStatus(nextState.networkStatus)
+            }
         },
         onSingleCapture = {
-            cameraCaptureUiState = cameraCaptureUiState.requestCalibrationCapture()
+            collectorViewModel.updateCameraCaptureUiState { state ->
+                state.requestCalibrationCapture()
+            }
         },
         onToggleDetails = {
-            cameraCaptureUiState = cameraCaptureUiState.toggleDetailsPanel()
+            collectorViewModel.updateCameraCaptureUiState { state ->
+                state.toggleDetailsPanel()
+            }
         },
-        onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
+        onSettingsChange = { updated ->
+            collectorViewModel.updateCollectorUiState { state -> state.copy(settings = updated) }
+        },
     )
 }
 
@@ -346,6 +391,6 @@ private fun List<ResolutionOption>.chooseFallbackResolution(): ResolutionOption 
 @Composable
 private fun MainScreenPreview() {
     GcandroidTheme {
-        MainScreen()
+        MainScreen(providedCollectorViewModel = CollectorViewModel())
     }
 }
