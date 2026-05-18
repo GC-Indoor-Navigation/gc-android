@@ -9,34 +9,6 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -48,15 +20,10 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import com.gc.collector.camera.CapturedFrame
@@ -72,7 +39,6 @@ import com.gc.collector.network.InternalCalibrationUploader
 import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.SendResult
 import com.gc.collector.network.parseGrpcEndpoint
-import com.gc.collector.ui.camera.CameraPreview
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
 import com.gc.collector.ui.theme.GcandroidTheme
 import kotlinx.coroutines.Dispatchers
@@ -232,417 +198,184 @@ fun MainScreen(modifier: Modifier = Modifier) {
         CollectorScreen.CameraCapture -> Unit
     }
 
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black),
-    ) {
-        val panelWidth = if (isLandscape) {
-            minOf(maxWidth * 0.42f, 380.dp)
-        } else {
-            minOf(maxWidth * 0.88f, 360.dp)
-        }
-        val controlsModifier = if (isLandscape) {
-            Modifier
-                .align(Alignment.CenterEnd)
-                .safeDrawingPadding()
-                .padding(end = 8.dp)
-        } else {
-            Modifier
-                .align(Alignment.BottomCenter)
-                .safeDrawingPadding()
-                .padding(bottom = 24.dp)
-        }
+    CameraCaptureScreen(
+        modifier = modifier,
+        settings = settings,
+        stats = stats,
+        sessionId = uiState.sessionId,
+        hasCameraPermission = hasCameraPermission,
+        cameraStatus = cameraStatus,
+        networkStatus = networkStatus,
+        calibrationStatus = calibrationStatus,
+        controlStatus = uiState.cameraControlStatus,
+        isCapturing = uiState.isCapturing,
+        isDetailsOpen = detailsPanelOpen,
+        isLandscape = isLandscape,
+        singleCaptureRequestId = calibrationCaptureRequestId,
+        singleCaptureEnabled = hasCameraPermission && !uiState.isCapturing && !calibrationUploadInProgress,
+        singleCaptureInProgress = calibrationUploadInProgress,
+        nextFrameSequence = { uiState.stats.frameSequence + 1L },
+        onRequestCameraPermission = {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        },
+        onFrameCaptured = { frame ->
+            if (uiState.isCapturing) {
+                val fps = calculateCurrentFps(
+                    frame = frame,
+                    lastWindowStartedNs = lastFpsWindowStartedNs,
+                    framesInWindow = framesInCurrentWindow,
+                    onWindowReset = { startedNs ->
+                        lastFpsWindowStartedNs = startedNs
+                        framesInCurrentWindow = 0
+                    },
+                    onFrameCounted = { countedFrames ->
+                        framesInCurrentWindow = countedFrames
+                    },
+                    previousFps = uiState.stats.currentFps,
+                )
 
-        CameraPanel(
-            modifier = Modifier.fillMaxSize(),
-            hasCameraPermission = hasCameraPermission,
-            cameraStatus = cameraStatus,
-            resolution = settings.resolution,
-            onRequestPermission = {
-                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-            },
-            isCapturing = uiState.isCapturing,
-            settings = uiState.settings,
-            sessionId = uiState.sessionId,
-            singleCaptureRequestId = calibrationCaptureRequestId,
-            controlStatus = uiState.cameraControlStatus,
-            nextFrameSequence = { uiState.stats.frameSequence + 1L },
-            onFrameCaptured = { frame ->
-                if (uiState.isCapturing) {
-                    val fps = calculateCurrentFps(
-                        frame = frame,
-                        lastWindowStartedNs = lastFpsWindowStartedNs,
-                        framesInWindow = framesInCurrentWindow,
-                        onWindowReset = { startedNs ->
-                            lastFpsWindowStartedNs = startedNs
-                            framesInCurrentWindow = 0
-                        },
-                        onFrameCounted = { countedFrames ->
-                            framesInCurrentWindow = countedFrames
-                        },
-                        previousFps = uiState.stats.currentFps,
-                    )
-
-                    uiState = uiState.copy(
-                        stats = uiState.stats.copy(
-                            frameSequence = frame.metadata.frameSequence,
-                            lastDeviceTimestampMs = frame.metadata.deviceTimestampMs,
-                            lastDeviceMonotonicNs = frame.metadata.deviceMonotonicNs,
-                            currentFps = fps,
-                        ),
-                    )
-
-                    coroutineScope.launch(Dispatchers.IO) {
-                        val sendResult = frameSender.send(frame)
-                        withContext(Dispatchers.Main) {
-                            when (sendResult) {
-                                SendResult.Sent -> {
-                                    uiState = uiState.copy(
-                                        stats = uiState.stats.copy(
-                                            sentCount = uiState.stats.sentCount + 1L,
-                                        ),
-                                    )
-                                    networkStatus = "gRPC streaming"
-                                }
-
-                                is SendResult.Failed -> {
-                                    uiState = uiState.copy(
-                                        stats = uiState.stats.copy(
-                                            failedCount = uiState.stats.failedCount + 1L,
-                                        ),
-                                    )
-                                    networkStatus = sendResult.message
-                                }
-
-                                SendResult.NotStarted -> {
-                                    uiState = uiState.copy(
-                                        stats = uiState.stats.copy(
-                                            droppedFrames = uiState.stats.droppedFrames + 1L,
-                                        ),
-                                    )
-                                    networkStatus = "gRPC stream not started"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            onSingleFrameCaptured = { frame ->
                 uiState = uiState.copy(
                     stats = uiState.stats.copy(
                         frameSequence = frame.metadata.frameSequence,
                         lastDeviceTimestampMs = frame.metadata.deviceTimestampMs,
                         lastDeviceMonotonicNs = frame.metadata.deviceMonotonicNs,
+                        currentFps = fps,
                     ),
                 )
 
                 coroutineScope.launch(Dispatchers.IO) {
-                    val uploadResult = calibrationUploader.upload(
-                        baseUrl = settings.calibrationHttpBaseUrl,
-                        frame = frame,
-                    )
+                    val sendResult = frameSender.send(frame)
                     withContext(Dispatchers.Main) {
-                        calibrationUploadInProgress = false
-                        calibrationStatus = when (uploadResult) {
-                            InternalCalibrationUploadResult.Uploaded ->
-                                "Calibration uploaded: ${frame.metadata.frameSequence}"
+                        when (sendResult) {
+                            SendResult.Sent -> {
+                                uiState = uiState.copy(
+                                    stats = uiState.stats.copy(
+                                        sentCount = uiState.stats.sentCount + 1L,
+                                    ),
+                                )
+                                networkStatus = "gRPC streaming"
+                            }
 
-                            is InternalCalibrationUploadResult.Failed ->
-                                "Calibration failed: ${uploadResult.message}"
+                            is SendResult.Failed -> {
+                                uiState = uiState.copy(
+                                    stats = uiState.stats.copy(
+                                        failedCount = uiState.stats.failedCount + 1L,
+                                    ),
+                                )
+                                networkStatus = sendResult.message
+                            }
+
+                            SendResult.NotStarted -> {
+                                uiState = uiState.copy(
+                                    stats = uiState.stats.copy(
+                                        droppedFrames = uiState.stats.droppedFrames + 1L,
+                                    ),
+                                )
+                                networkStatus = "gRPC stream not started"
+                            }
                         }
                     }
                 }
-            },
-            onCameraReady = {
-                cameraStatus = "Back camera preview ready"
-            },
-            onCameraControlStatus = { status ->
-                uiState = uiState.copy(cameraControlStatus = status)
-            },
-            onCameraError = { message ->
-                cameraStatus = message
-            },
-        )
+            }
+        },
+        onSingleFrameCaptured = { frame ->
+            uiState = uiState.copy(
+                stats = uiState.stats.copy(
+                    frameSequence = frame.metadata.frameSequence,
+                    lastDeviceTimestampMs = frame.metadata.deviceTimestampMs,
+                    lastDeviceMonotonicNs = frame.metadata.deviceMonotonicNs,
+                ),
+            )
 
-        CaptureOverlayControls(
-            isCapturing = uiState.isCapturing,
-            isDetailsOpen = detailsPanelOpen,
-            isLandscape = isLandscape,
-            onStart = {
-                val nowMs = System.currentTimeMillis()
-                val nowNs = SystemClock.elapsedRealtimeNanos()
-                val sessionId = SessionIdFactory.create(settings.deviceId, nowMs)
-                parseGrpcEndpoint(settings.serverUrl)
-                    .onSuccess { endpoint ->
-                        runCatching {
-                            frameSender.start(
-                                host = endpoint.host,
-                                port = endpoint.port,
-                                usePlaintext = endpoint.usePlaintext,
-                            )
-                        }.onSuccess {
-                            Log.i(collectorLogTag, "Collector session started: $sessionId")
-                            networkStatus = "gRPC connected to ${endpoint.host}:${endpoint.port}"
-                            uiState = uiState.copy(
-                                isCapturing = true,
-                                sessionId = sessionId,
-                                stats = stats.copy(
-                                    frameSequence = 0L,
-                                    lastDeviceTimestampMs = nowMs,
-                                    lastDeviceMonotonicNs = nowNs,
-                                    sentCount = 0L,
-                                    failedCount = 0L,
-                                    droppedFrames = 0L,
-                                    currentFps = 0f,
-                                ),
-                            )
-                            lastFpsWindowStartedNs = null
-                            framesInCurrentWindow = 0
-                        }.onFailure { error ->
-                            networkStatus = error.message ?: "Failed to start gRPC stream"
-                            uiState = uiState.copy(
-                                isCapturing = false,
-                                sessionId = null,
-                                stats = stats.copy(failedCount = stats.failedCount + 1L),
-                            )
-                        }
+            coroutineScope.launch(Dispatchers.IO) {
+                val uploadResult = calibrationUploader.upload(
+                    baseUrl = settings.calibrationHttpBaseUrl,
+                    frame = frame,
+                )
+                withContext(Dispatchers.Main) {
+                    calibrationUploadInProgress = false
+                    calibrationStatus = when (uploadResult) {
+                        InternalCalibrationUploadResult.Uploaded ->
+                            "Calibration uploaded: ${frame.metadata.frameSequence}"
+
+                        is InternalCalibrationUploadResult.Failed ->
+                            "Calibration failed: ${uploadResult.message}"
                     }
-                    .onFailure { error ->
-                        networkStatus = error.message ?: "Invalid gRPC endpoint"
+                }
+            }
+        },
+        onCameraReady = {
+            cameraStatus = "Back camera preview ready"
+        },
+        onCameraControlStatus = { status ->
+            uiState = uiState.copy(cameraControlStatus = status)
+        },
+        onCameraError = { message ->
+            cameraStatus = message
+        },
+        onStart = {
+            val nowMs = System.currentTimeMillis()
+            val nowNs = SystemClock.elapsedRealtimeNanos()
+            val sessionId = SessionIdFactory.create(settings.deviceId, nowMs)
+            parseGrpcEndpoint(settings.serverUrl)
+                .onSuccess { endpoint ->
+                    runCatching {
+                        frameSender.start(
+                            host = endpoint.host,
+                            port = endpoint.port,
+                            usePlaintext = endpoint.usePlaintext,
+                        )
+                    }.onSuccess {
+                        Log.i(collectorLogTag, "Collector session started: $sessionId")
+                        networkStatus = "gRPC connected to ${endpoint.host}:${endpoint.port}"
+                        uiState = uiState.copy(
+                            isCapturing = true,
+                            sessionId = sessionId,
+                            stats = stats.copy(
+                                frameSequence = 0L,
+                                lastDeviceTimestampMs = nowMs,
+                                lastDeviceMonotonicNs = nowNs,
+                                sentCount = 0L,
+                                failedCount = 0L,
+                                droppedFrames = 0L,
+                                currentFps = 0f,
+                            ),
+                        )
+                        lastFpsWindowStartedNs = null
+                        framesInCurrentWindow = 0
+                    }.onFailure { error ->
+                        networkStatus = error.message ?: "Failed to start gRPC stream"
                         uiState = uiState.copy(
                             isCapturing = false,
                             sessionId = null,
                             stats = stats.copy(failedCount = stats.failedCount + 1L),
                         )
                     }
-            },
-            onStop = {
-                frameSender.stop()
-                uiState = uiState.copy(isCapturing = false, sessionId = null)
-                networkStatus = "gRPC stopped"
-            },
-            onSingleCapture = {
-                calibrationUploadInProgress = true
-                calibrationStatus = "Calibration capture requested"
-                calibrationCaptureRequestId += 1L
-            },
-            singleCaptureEnabled = hasCameraPermission && !uiState.isCapturing && !calibrationUploadInProgress,
-            singleCaptureInProgress = calibrationUploadInProgress,
-            onToggleDetails = {
-                detailsPanelOpen = !detailsPanelOpen
-            },
-            modifier = controlsModifier,
-        )
-
-        if (isLandscape) {
-            AnimatedVisibility(
-                visible = detailsPanelOpen,
-                enter = slideInHorizontally(initialOffsetX = { fullWidth -> fullWidth / 2 }),
-                exit = slideOutHorizontally(targetOffsetX = { fullWidth -> fullWidth / 2 }),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .safeDrawingPadding()
-                    .padding(top = 148.dp, end = 12.dp, bottom = 12.dp),
-            ) {
-                SlideDetailsPanel(
-                    modifier = Modifier
-                        .width(panelWidth)
-                        .fillMaxHeight()
-                        .padding(vertical = 0.dp, horizontal = 0.dp),
-                settings = settings,
-                stats = stats,
-                sessionId = uiState.sessionId,
-                isCapturing = uiState.isCapturing,
-                cameraStatus = cameraStatus,
-                networkStatus = networkStatus,
-                calibrationStatus = calibrationStatus,
-                controlStatus = uiState.cameraControlStatus,
-                isLandscape = true,
-                includeSettings = false,
-                onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
-            )
-            }
-        } else {
-            AnimatedVisibility(
-                visible = detailsPanelOpen,
-                enter = slideInVertically(initialOffsetY = { fullHeight -> fullHeight }),
-                exit = slideOutVertically(targetOffsetY = { fullHeight -> fullHeight }),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .safeDrawingPadding()
-                    .padding(start = 12.dp, end = 12.dp, bottom = 104.dp),
-            ) {
-                SlideDetailsPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.58f),
-                    settings = settings,
-                    stats = stats,
-                    sessionId = uiState.sessionId,
-                    isCapturing = uiState.isCapturing,
-                    cameraStatus = cameraStatus,
-                    networkStatus = networkStatus,
-                    calibrationStatus = calibrationStatus,
-                    controlStatus = uiState.cameraControlStatus,
-                    isLandscape = false,
-                    includeSettings = false,
-                    onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SlideDetailsPanel(
-    settings: CameraCaptureSettings,
-    stats: CaptureStats,
-    sessionId: String?,
-    isCapturing: Boolean,
-    cameraStatus: String,
-    networkStatus: String,
-    calibrationStatus: String,
-    controlStatus: CameraControlStatus,
-    isLandscape: Boolean,
-    includeSettings: Boolean,
-    onSettingsChange: (CameraCaptureSettings) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        tonalElevation = 4.dp,
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(if (isLandscape) 10.dp else 12.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp),
-        ) {
-            Text(
-                text = "Details",
-                style = if (isLandscape) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            if (includeSettings) {
-                SettingsPanel(
-                    settings = settings,
-                    isCapturing = isCapturing,
-                    initiallyExpanded = true,
-                    onSettingsChange = onSettingsChange,
-                )
-            }
-            StatusPanel(
-                settings = settings,
-                stats = stats,
-                sessionId = sessionId,
-                isCapturing = isCapturing,
-                cameraStatus = cameraStatus,
-                networkStatus = networkStatus,
-                calibrationStatus = calibrationStatus,
-                controlStatus = controlStatus,
-                initiallyExpanded = true,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CameraPanel(
-    hasCameraPermission: Boolean,
-    cameraStatus: String,
-    resolution: ResolutionOption,
-    onRequestPermission: () -> Unit,
-    isCapturing: Boolean,
-    settings: CameraCaptureSettings,
-    sessionId: String?,
-    singleCaptureRequestId: Long,
-    controlStatus: CameraControlStatus,
-    nextFrameSequence: () -> Long,
-    onFrameCaptured: (CapturedFrame) -> Unit,
-    onSingleFrameCaptured: (CapturedFrame) -> Unit,
-    onCameraControlStatus: (CameraControlStatus) -> Unit,
-    onCameraReady: () -> Unit,
-    onCameraError: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .background(Color(0xFF101820), RoundedCornerShape(8.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (hasCameraPermission) {
-            CameraPreview(
-                modifier = Modifier.fillMaxSize(),
-                isAnalyzing = isCapturing,
-                settings = settings,
-                sessionId = sessionId,
-                singleCaptureRequestId = singleCaptureRequestId,
-                controlStatus = controlStatus,
-                nextFrameSequence = nextFrameSequence,
-                onFrameCaptured = onFrameCaptured,
-                onSingleFrameCaptured = onSingleFrameCaptured,
-                onCameraControlStatus = onCameraControlStatus,
-                onCameraReady = onCameraReady,
-                onCameraError = onCameraError,
-            )
-        } else {
-            CameraPermissionPlaceholder(
-                cameraStatus = cameraStatus,
-                onRequestPermission = onRequestPermission,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CameraPermissionPlaceholder(
-    cameraStatus: String,
-    onRequestPermission: () -> Unit,
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = "Camera permission required",
-            color = Color.White,
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = cameraStatus,
-            color = Color(0xFFB9C6D0),
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-        )
-        OutlinedButton(
-            onClick = onRequestPermission,
-            border = BorderStroke(1.dp, Color(0xFFB9C6D0)),
-        ) {
-            Text("Grant Camera Permission", color = Color.White)
-        }
-    }
-}
-
-@Composable
-private fun PreviewBadge(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .background(Color(0xAA000000), RoundedCornerShape(6.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        Text(
-            text = text,
-            color = Color.White,
-            style = MaterialTheme.typography.labelMedium,
-        )
-    }
+                }
+                .onFailure { error ->
+                    networkStatus = error.message ?: "Invalid gRPC endpoint"
+                    uiState = uiState.copy(
+                        isCapturing = false,
+                        sessionId = null,
+                        stats = stats.copy(failedCount = stats.failedCount + 1L),
+                    )
+                }
+        },
+        onStop = {
+            frameSender.stop()
+            uiState = uiState.copy(isCapturing = false, sessionId = null)
+            networkStatus = "gRPC stopped"
+        },
+        onSingleCapture = {
+            calibrationUploadInProgress = true
+            calibrationStatus = "Calibration capture requested"
+            calibrationCaptureRequestId += 1L
+        },
+        onToggleDetails = {
+            detailsPanelOpen = !detailsPanelOpen
+        },
+        onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
+    )
 }
 
 private fun calculateCurrentFps(
