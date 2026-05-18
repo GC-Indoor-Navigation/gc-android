@@ -6,10 +6,38 @@ data class CameraCaptureUiState(
     val detailsPanelOpen: Boolean = false,
     val calibrationCapture: CalibrationCaptureState = CalibrationCaptureState(),
 ) {
+    val calibrationStatus: String
+        get() = calibrationCapture.status
+
+    val singleCaptureRequestId: Long
+        get() = calibrationCapture.captureRequestId
+
+    val singleCaptureInProgress: Boolean
+        get() = calibrationCapture.uploadInProgress
+
     fun singleCaptureEnabled(
         hasCameraPermission: Boolean,
         isCapturing: Boolean,
     ): Boolean {
         return hasCameraPermission && !isCapturing && !calibrationCapture.uploadInProgress
+    }
+
+    fun requestCalibrationCapture(): CameraCaptureUiState {
+        return copy(
+            calibrationCapture = CalibrationCaptureStateReducer.requestCapture(calibrationCapture),
+        )
+    }
+
+    fun completeCalibrationUpload(
+        frameSequence: Long,
+        outcome: CalibrationUploadOutcome,
+    ): CameraCaptureUiState {
+        return copy(
+            calibrationCapture = CalibrationCaptureStateReducer.completeUpload(
+                state = calibrationCapture,
+                frameSequence = frameSequence,
+                outcome = outcome,
+            ),
+        )
     }
 }

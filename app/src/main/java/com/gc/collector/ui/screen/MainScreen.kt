@@ -112,7 +112,6 @@ fun MainScreen(modifier: Modifier = Modifier) {
     )
     val settings = uiState.settings
     val stats = uiState.stats
-    val calibrationCaptureState = cameraCaptureUiState.calibrationCapture
 
     KeepScreenOn(enabled = currentScreen == CollectorScreen.CameraCapture)
 
@@ -209,17 +208,17 @@ fun MainScreen(modifier: Modifier = Modifier) {
         hasCameraPermission = hasCameraPermission,
         cameraStatus = cameraCaptureUiState.cameraStatus,
         networkStatus = cameraCaptureUiState.networkStatus,
-        calibrationStatus = calibrationCaptureState.status,
+        calibrationStatus = cameraCaptureUiState.calibrationStatus,
         controlStatus = uiState.cameraControlStatus,
         isCapturing = uiState.isCapturing,
         isDetailsOpen = cameraCaptureUiState.detailsPanelOpen,
         isLandscape = isLandscape,
-        singleCaptureRequestId = calibrationCaptureState.captureRequestId,
+        singleCaptureRequestId = cameraCaptureUiState.singleCaptureRequestId,
         singleCaptureEnabled = cameraCaptureUiState.singleCaptureEnabled(
             hasCameraPermission = hasCameraPermission,
             isCapturing = uiState.isCapturing,
         ),
-        singleCaptureInProgress = calibrationCaptureState.uploadInProgress,
+        singleCaptureInProgress = cameraCaptureUiState.singleCaptureInProgress,
         nextFrameSequence = { uiState.stats.frameSequence + 1L },
         onRequestCameraPermission = {
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -275,12 +274,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         InternalCalibrationUploadResult.Uploaded -> CalibrationUploadOutcome.Uploaded
                         is InternalCalibrationUploadResult.Failed -> CalibrationUploadOutcome.Failed(uploadResult.message)
                     }
-                    val nextState = CalibrationCaptureStateReducer.completeUpload(
-                        state = cameraCaptureUiState.calibrationCapture,
+                    cameraCaptureUiState = cameraCaptureUiState.completeCalibrationUpload(
                         frameSequence = frame.metadata.frameSequence,
                         outcome = outcome,
                     )
-                    cameraCaptureUiState = cameraCaptureUiState.copy(calibrationCapture = nextState)
                 }
             }
         },
@@ -344,8 +341,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             cameraCaptureUiState = cameraCaptureUiState.copy(networkStatus = nextState.networkStatus)
         },
         onSingleCapture = {
-            val nextState = CalibrationCaptureStateReducer.requestCapture(calibrationCaptureState)
-            cameraCaptureUiState = cameraCaptureUiState.copy(calibrationCapture = nextState)
+            cameraCaptureUiState = cameraCaptureUiState.requestCalibrationCapture()
         },
         onToggleDetails = {
             cameraCaptureUiState = cameraCaptureUiState.copy(

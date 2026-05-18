@@ -1,6 +1,7 @@
 package com.gc.collector.model
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,5 +56,38 @@ class CameraCaptureUiStateTest {
                 isCapturing = false,
             ),
         )
+    }
+
+    @Test
+    fun requestCalibrationCaptureUpdatesNestedCalibrationState() {
+        val next = CameraCaptureUiState(
+            calibrationCapture = CalibrationCaptureState(
+                status = "Calibration idle",
+                captureRequestId = 4L,
+                uploadInProgress = false,
+            ),
+        ).requestCalibrationCapture()
+
+        assertEquals("Calibration capture requested", next.calibrationStatus)
+        assertEquals(5L, next.singleCaptureRequestId)
+        assertTrue(next.singleCaptureInProgress)
+    }
+
+    @Test
+    fun completeCalibrationUploadUpdatesNestedCalibrationState() {
+        val next = CameraCaptureUiState(
+            calibrationCapture = CalibrationCaptureState(
+                status = "Calibration capture requested",
+                captureRequestId = 4L,
+                uploadInProgress = true,
+            ),
+        ).completeCalibrationUpload(
+            frameSequence = 88L,
+            outcome = CalibrationUploadOutcome.Uploaded,
+        )
+
+        assertEquals("Calibration uploaded: 88", next.calibrationStatus)
+        assertEquals(4L, next.singleCaptureRequestId)
+        assertFalse(next.singleCaptureInProgress)
     }
 }
