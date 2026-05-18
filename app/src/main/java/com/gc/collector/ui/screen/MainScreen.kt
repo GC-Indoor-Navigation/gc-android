@@ -16,8 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -380,107 +378,6 @@ private fun List<ResolutionOption>.chooseFallbackResolution(): ResolutionOption 
             val aspectDiff = kotlin.math.abs((option.width.toFloat() / option.height) - (16f / 9f))
             areaDiff + (aspectDiff * 100_000).toInt()
         }
-}
-
-private fun collectorUiStateSaver(): Saver<CollectorUiState, Any> {
-    return listSaver(
-        save = { state ->
-            listOf(
-                state.isCapturing,
-                state.settings.cameraId,
-                state.settings.deviceId,
-                state.settings.serverUrl,
-                state.settings.resolution.label,
-                state.settings.resolution.width,
-                state.settings.resolution.height,
-                state.settings.fpsTarget,
-                state.settings.focusMode,
-                state.settings.focusLocked,
-                state.settings.exposureLocked,
-                state.settings.whiteBalanceLocked,
-                state.settings.zoomDisabled,
-                state.settings.orientationDeg,
-                state.settings.manualExposureEnabled,
-                state.settings.iso,
-                state.settings.exposureTimeNs,
-                state.stats.frameSequence,
-                state.stats.lastDeviceTimestampMs,
-                state.stats.lastDeviceMonotonicNs,
-                state.stats.sentCount,
-                state.stats.failedCount,
-                state.stats.droppedFrames,
-                state.stats.currentFps,
-                state.cameraControlStatus.focusLockSupported,
-                state.cameraControlStatus.focusLockApplied,
-                state.cameraControlStatus.exposureLockSupported,
-                state.cameraControlStatus.exposureLockApplied,
-                state.cameraControlStatus.whiteBalanceLockSupported,
-                state.cameraControlStatus.whiteBalanceLockApplied,
-                state.cameraControlStatus.fpsTargetSupported,
-                state.cameraControlStatus.resolutionSupported,
-                state.cameraControlStatus.manualExposureSupported,
-                state.cameraControlStatus.manualExposureApplied,
-                state.cameraControlStatus.isoApplied,
-                state.cameraControlStatus.exposureTimeNsApplied,
-                state.cameraControlStatus.focalLengthMm,
-                state.cameraControlStatus.zoomSupported,
-                state.sessionId,
-                state.settings.calibrationHttpBaseUrl,
-            )
-        },
-        restore = { values ->
-            CollectorUiState(
-                isCapturing = values[0] as Boolean,
-                settings = CameraCaptureSettings(
-                    cameraId = values[1] as String,
-                    deviceId = values[2] as String,
-                    serverUrl = values[3] as String,
-                    calibrationHttpBaseUrl = values.getOrNull(39) as? String ?: CameraCaptureSettings().calibrationHttpBaseUrl,
-                    resolution = ResolutionOption(
-                        label = values[4] as String,
-                        width = (values[5] as Number).toInt(),
-                        height = (values[6] as Number).toInt(),
-                    ),
-                    fpsTarget = (values[7] as Number).toInt(),
-                    focusMode = values[8] as String,
-                    focusLocked = values[9] as Boolean,
-                    exposureLocked = values[10] as Boolean,
-                    whiteBalanceLocked = values[11] as Boolean,
-                    zoomDisabled = values[12] as Boolean,
-                    orientationDeg = (values[13] as Number).toInt(),
-                    manualExposureEnabled = values[14] as Boolean,
-                    iso = (values[15] as Number).toInt(),
-                    exposureTimeNs = (values[16] as Number).toLong(),
-                ),
-                stats = CaptureStats(
-                    frameSequence = (values[17] as Number).toLong(),
-                    lastDeviceTimestampMs = (values[18] as Number?)?.toLong(),
-                    lastDeviceMonotonicNs = (values[19] as Number?)?.toLong(),
-                    sentCount = (values[20] as Number).toLong(),
-                    failedCount = (values[21] as Number).toLong(),
-                    droppedFrames = (values[22] as Number).toLong(),
-                    currentFps = (values[23] as Number).toFloat(),
-                ),
-                cameraControlStatus = CameraControlStatus(
-                    focusLockSupported = values[24] as Boolean?,
-                    focusLockApplied = values[25] as Boolean?,
-                    exposureLockSupported = values[26] as Boolean?,
-                    exposureLockApplied = values[27] as Boolean?,
-                    whiteBalanceLockSupported = values[28] as Boolean?,
-                    whiteBalanceLockApplied = values[29] as Boolean?,
-                    fpsTargetSupported = values[30] as Boolean?,
-                    resolutionSupported = values[31] as Boolean?,
-                    manualExposureSupported = values[32] as Boolean?,
-                    manualExposureApplied = values[33] as Boolean?,
-                    isoApplied = (values[34] as Number?)?.toInt(),
-                    exposureTimeNsApplied = (values[35] as Number?)?.toLong(),
-                    focalLengthMm = (values[36] as Number?)?.toFloat(),
-                    zoomSupported = values[37] as Boolean?,
-                ),
-                sessionId = values.getOrNull(38) as String?,
-            )
-        },
-    )
 }
 
 @Preview(showBackground = true)
