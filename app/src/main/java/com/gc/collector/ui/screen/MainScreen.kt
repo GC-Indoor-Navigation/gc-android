@@ -35,7 +35,7 @@ import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.model.toAppliedState
-import com.gc.collector.network.FrameSendResultReducer
+import com.gc.collector.network.FrameSendUiStateReducer
 import com.gc.collector.network.GrpcFrameSender
 import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
 import com.gc.collector.network.InternalCalibrationUploader
@@ -232,12 +232,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 coroutineScope.launch(Dispatchers.IO) {
                     val sendResult = frameSender.send(frame)
                     withContext(Dispatchers.Main) {
-                        val nextState = FrameSendResultReducer.reduce(
-                            stats = uiState.stats,
+                        val nextState = FrameSendUiStateReducer.reduce(
+                            collectorUiState = uiState,
+                            cameraCaptureUiState = cameraCaptureUiState,
                             result = sendResult,
                         )
-                        uiState = uiState.copy(stats = nextState.stats)
-                        cameraCaptureUiState = cameraCaptureUiState.withNetworkStatus(nextState.networkStatus)
+                        uiState = nextState.collectorUiState
+                        cameraCaptureUiState = nextState.cameraCaptureUiState
                     }
                 }
             }
