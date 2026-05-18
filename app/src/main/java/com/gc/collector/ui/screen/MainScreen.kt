@@ -32,11 +32,9 @@ import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationCaptureStateReducer
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.ResolutionOption
-import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.model.toAppliedState
-import com.gc.collector.network.FrameSendUiStateReducer
 import com.gc.collector.network.GrpcFrameSender
 import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
 import com.gc.collector.network.InternalCalibrationUploader
@@ -98,8 +96,6 @@ fun MainScreen(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PERMISSION_GRANTED,
         )
     }
-    var lastFpsWindowStartedNs by remember { mutableStateOf<Long?>(null) }
-    var framesInCurrentWindow by remember { mutableStateOf(0) }
     var resolutionOptions by remember { mutableStateOf(ResolutionOption.commonOptions) }
     var resolutionOptionsStatus by rememberSaveable { mutableStateOf("common resolution presets") }
     val frameSender = remember { GrpcFrameSender() }
@@ -230,32 +226,8 @@ fun MainScreen(
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         },
         onFrameCaptured = { frame ->
-            if (uiState.isCapturing) {
-                val nextFrameState = RuntimeFrameCaptureStateReducer.applyCapturedFrame(
-                    stats = uiState.stats,
-                    metadata = frame.metadata,
-                    sensorTimestampNs = frame.sensorTimestampNs,
-                    lastWindowStartedNs = lastFpsWindowStartedNs,
-                    framesInWindow = framesInCurrentWindow,
-                )
-                lastFpsWindowStartedNs = nextFrameState.fpsWindowStartedNs
-                framesInCurrentWindow = nextFrameState.framesInWindow
-                val collectorStateAfterCapture = uiState.copy(stats = nextFrameState.stats)
-                collectorViewModel.setCollectorUiState(collectorStateAfterCapture)
-
-                coroutineScope.launch(Dispatchers.IO) {
-                    val sendResult = frameSender.send(frame)
-                    withContext(Dispatchers.Main) {
-                        val currentState = collectorViewModel.screenState.value
-                        val nextState = FrameSendUiStateReducer.reduce(
-                            collectorUiState = currentState.collectorUiState,
-                            cameraCaptureUiState = currentState.cameraCaptureUiState,
-                            result = sendResult,
-                        )
-                        collectorViewModel.setCollectorUiState(nextState.collectorUiState)
-                        collectorViewModel.setCameraCaptureUiState(nextState.cameraCaptureUiState)
-                    }
-                }
+            collectorViewModel.onRuntimeFrameCaptured(frame) { capturedFrame ->
+                frameSender.send(capturedFrame)
             }
         },
         onSingleFrameCaptured = { frame ->
@@ -314,8 +286,7 @@ fun MainScreen(
                         )
                         collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
                         collectorViewModel.setCollectorUiState(nextState.uiState)
-                        lastFpsWindowStartedNs = null
-                        framesInCurrentWindow = 0
+                        collectorViewModel.resetRuntimeFpsWindow()
                     }.onFailure { error ->
                         val nextState = StreamSessionStateReducer.startFailed(
                             state = uiState,

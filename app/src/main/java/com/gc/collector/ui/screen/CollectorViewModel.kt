@@ -1,18 +1,27 @@
 package com.gc.collector.ui.screen
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.gc.collector.camera.CapturedFrame
 import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CollectorUiState
+import com.gc.collector.model.RuntimeFrameCaptureStateReducer
+import com.gc.collector.network.FrameSendUiStateReducer
+import com.gc.collector.network.SendResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 class CollectorViewModel : ViewModel() {
     private val _screenState = MutableStateFlow(CollectorScreenState())
     val screenState: StateFlow<CollectorScreenState> = _screenState.asStateFlow()
+    private var runtimeFpsWindowStartedNs: Long? = null
+    private var runtimeFramesInWindow: Int = 0
 
     fun setCollectorUiState(state: CollectorUiState) {
         _screenState.update { current ->
@@ -94,6 +103,48 @@ class CollectorViewModel : ViewModel() {
             state.completeCalibrationUpload(
                 frameSequence = frameSequence,
                 outcome = outcome,
+            )
+        }
+    }
+
+    fun resetRuntimeFpsWindow() {
+        runtimeFpsWindowStartedNs = null
+        runtimeFramesInWindow = 0
+    }
+
+    fun onRuntimeFrameCaptured(
+        frame: CapturedFrame,
+        sendFrame: (CapturedFrame) -> SendResult,
+    ) {
+        val current = screenState.value
+        if (!current.collectorUiState.isCapturing) return
+
+        val nextFrameState = RuntimeFrameCaptureStateReducer.applyCapturedFrame(
+            stats = current.collectorUiState.stats,
+            metadata = frame.metadata,
+            sensorTimestampNs = frame.sensorTimestampNs,
+            lastWindowStartedNs = runtimeFpsWindowStartedNs,
+            framesInWindow = runtimeFramesInWindow,
+        )
+        runtimeFpsWindowStartedNs = nextFrameState.fpsWindowStartedNs
+        runtimeFramesInWindow = nextFrameState.framesInWindow
+        setCollectorUiState(current.collectorUiState.copy(stats = nextFrameState.stats))
+
+        viewModelScope.launch(Dispatchers.IO) {
+            onRuntimeFrameSendResult(sendFrame(frame))
+        }
+    }
+
+    fun onRuntimeFrameSendResult(result: SendResult) {
+        _screenState.update { current ->
+            val nextState = FrameSendUiStateReducer.reduce(
+                collectorUiState = current.collectorUiState,
+                cameraCaptureUiState = current.cameraCaptureUiState,
+                result = result,
+            )
+            current.copy(
+                collectorUiState = nextState.collectorUiState,
+                cameraCaptureUiState = nextState.cameraCaptureUiState,
             )
         }
     }
