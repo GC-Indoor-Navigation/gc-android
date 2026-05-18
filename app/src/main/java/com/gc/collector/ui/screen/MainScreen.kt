@@ -26,6 +26,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CameraControlStatus
+import com.gc.collector.model.CalibrationCaptureState
+import com.gc.collector.model.CalibrationCaptureStateReducer
+import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.FpsCalculator
@@ -109,6 +112,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
     )
     val settings = uiState.settings
     val stats = uiState.stats
+    val calibrationCaptureState = CalibrationCaptureState(
+        status = calibrationStatus,
+        captureRequestId = calibrationCaptureRequestId,
+        uploadInProgress = calibrationUploadInProgress,
+    )
 
     KeepScreenOn(enabled = currentScreen == CollectorScreen.CameraCapture)
 
@@ -273,10 +281,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
         },
         onSingleFrameCaptured = { frame ->
             uiState = uiState.copy(
-                stats = uiState.stats.copy(
-                    frameSequence = frame.metadata.frameSequence,
-                    lastDeviceTimestampMs = frame.metadata.deviceTimestampMs,
-                    lastDeviceMonotonicNs = frame.metadata.deviceMonotonicNs,
+                stats = CalibrationCaptureStateReducer.applyCapturedFrame(
+                    stats = uiState.stats,
+                    metadata = frame.metadata,
                 ),
             )
 
@@ -286,14 +293,22 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     frame = frame,
                 )
                 withContext(Dispatchers.Main) {
-                    calibrationUploadInProgress = false
-                    calibrationStatus = when (uploadResult) {
-                        InternalCalibrationUploadResult.Uploaded ->
-                            "Calibration uploaded: ${frame.metadata.frameSequence}"
-
-                        is InternalCalibrationUploadResult.Failed ->
-                            "Calibration failed: ${uploadResult.message}"
+                    val outcome = when (uploadResult) {
+                        InternalCalibrationUploadResult.Uploaded -> CalibrationUploadOutcome.Uploaded
+                        is InternalCalibrationUploadResult.Failed -> CalibrationUploadOutcome.Failed(uploadResult.message)
                     }
+                    val nextState = CalibrationCaptureStateReducer.completeUpload(
+                        state = CalibrationCaptureState(
+                            status = calibrationStatus,
+                            captureRequestId = calibrationCaptureRequestId,
+                            uploadInProgress = calibrationUploadInProgress,
+                        ),
+                        frameSequence = frame.metadata.frameSequence,
+                        outcome = outcome,
+                    )
+                    calibrationStatus = nextState.status
+                    calibrationCaptureRequestId = nextState.captureRequestId
+                    calibrationUploadInProgress = nextState.uploadInProgress
                 }
             }
         },
@@ -360,9 +375,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
             networkStatus = "gRPC stopped"
         },
         onSingleCapture = {
-            calibrationUploadInProgress = true
-            calibrationStatus = "Calibration capture requested"
-            calibrationCaptureRequestId += 1L
+            val nextState = CalibrationCaptureStateReducer.requestCapture(calibrationCaptureState)
+            calibrationStatus = nextState.status
+            calibrationCaptureRequestId = nextState.captureRequestId
+            calibrationUploadInProgress = nextState.uploadInProgress
         },
         onToggleDetails = {
             detailsPanelOpen = !detailsPanelOpen
