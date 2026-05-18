@@ -73,21 +73,23 @@ fun CameraPreview(
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val currentControlStatus = rememberUpdatedState(controlStatus)
+    val currentIsAnalyzing = rememberUpdatedState(isAnalyzing)
+    val currentSessionId = rememberUpdatedState(sessionId)
+    val currentNextFrameSequence = rememberUpdatedState(nextFrameSequence)
+    val currentOnFrameCaptured = rememberUpdatedState(onFrameCaptured)
     val currentSingleCaptureRequestId = rememberUpdatedState(singleCaptureRequestId)
     val currentOnSingleFrameCaptured = rememberUpdatedState(onSingleFrameCaptured)
+    val currentOnCameraControlStatus = rememberUpdatedState(onCameraControlStatus)
+    val currentOnCameraReady = rememberUpdatedState(onCameraReady)
+    val currentOnCameraError = rememberUpdatedState(onCameraError)
     val handledSingleCaptureRequestId = remember { AtomicLong(0L) }
 
     LaunchedEffect(
         context,
         lifecycleOwner,
         previewView,
-        isAnalyzing,
         settings,
-        sessionId,
         targetRotation,
-        nextFrameSequence,
-        onFrameCaptured,
-        onCameraControlStatus,
         targetFpsRange,
     ) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -109,7 +111,7 @@ fun CameraPreview(
                             )
                             if (updatedStatus != previousStatus) {
                                 lastControlStatus = updatedStatus
-                                onCameraControlStatus(updatedStatus)
+                                currentOnCameraControlStatus.value(updatedStatus)
                             }
                         }
                     }
@@ -141,14 +143,14 @@ fun CameraPreview(
                                         handledSingleCaptureRequestId.set(requestId)
                                     }
 
-                                    if (isAnalyzing || shouldCaptureSingleFrame) {
+                                    if (currentIsAnalyzing.value || shouldCaptureSingleFrame) {
                                         val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                                         val frameSize = imageProxy.rotatedSize(rotationDegrees)
                                         val metadata = FrameMetadataFactory.create(
                                             settings = settings,
                                             controlStatus = currentControlStatus.value,
-                                            frameSequence = nextFrameSequence(),
-                                            sessionId = if (shouldCaptureSingleFrame) null else sessionId,
+                                            frameSequence = currentNextFrameSequence.value(),
+                                            sessionId = if (shouldCaptureSingleFrame) null else currentSessionId.value,
                                             width = frameSize.width,
                                             height = frameSize.height,
                                             orientationDeg = rotationDegrees,
@@ -166,7 +168,7 @@ fun CameraPreview(
                                             if (shouldCaptureSingleFrame) {
                                                 currentOnSingleFrameCaptured.value(capturedFrame)
                                             } else {
-                                                onFrameCaptured(capturedFrame)
+                                                currentOnFrameCaptured.value(capturedFrame)
                                             }
                                         }
                                     }
@@ -188,10 +190,10 @@ fun CameraPreview(
                     }
                     val cameraControlStatus = camera.cameraInfo.readControlStatus(settings)
                     lastControlStatus = cameraControlStatus
-                    onCameraControlStatus(cameraControlStatus)
-                    onCameraReady()
+                    currentOnCameraControlStatus.value(cameraControlStatus)
+                    currentOnCameraReady.value()
                 }.onFailure { error ->
-                    onCameraError(error.message ?: "Failed to bind camera preview")
+                    currentOnCameraError.value(error.message ?: "Failed to bind camera preview")
                 }
             },
             mainExecutor,
