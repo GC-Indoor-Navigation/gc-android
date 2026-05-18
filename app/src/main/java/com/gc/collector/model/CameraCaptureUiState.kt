@@ -22,6 +22,36 @@ data class CameraCaptureUiState(
         return hasCameraPermission && !isCapturing && !calibrationCapture.uploadInProgress
     }
 
+    fun withCameraPermissionResult(granted: Boolean): CameraCaptureUiState {
+        return copy(
+            cameraStatus = if (granted) {
+                "Camera permission granted"
+            } else {
+                "Camera permission denied"
+            },
+        )
+    }
+
+    fun withCameraReady(): CameraCaptureUiState {
+        return copy(cameraStatus = "Back camera preview ready")
+    }
+
+    fun withCameraError(message: String): CameraCaptureUiState {
+        return copy(cameraStatus = message)
+    }
+
+    fun withNetworkStatus(message: String): CameraCaptureUiState {
+        return copy(networkStatus = message)
+    }
+
+    fun closeDetailsPanel(): CameraCaptureUiState {
+        return copy(detailsPanelOpen = false)
+    }
+
+    fun toggleDetailsPanel(): CameraCaptureUiState {
+        return copy(detailsPanelOpen = !detailsPanelOpen)
+    }
+
     fun requestCalibrationCapture(): CameraCaptureUiState {
         return copy(
             calibrationCapture = CalibrationCaptureStateReducer.requestCapture(calibrationCapture),

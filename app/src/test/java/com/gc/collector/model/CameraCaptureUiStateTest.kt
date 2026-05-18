@@ -90,4 +90,54 @@ class CameraCaptureUiStateTest {
         assertEquals(4L, next.singleCaptureRequestId)
         assertFalse(next.singleCaptureInProgress)
     }
+
+    @Test
+    fun withCameraPermissionResultUpdatesCameraStatus() {
+        assertEquals(
+            "Camera permission granted",
+            CameraCaptureUiState().withCameraPermissionResult(granted = true).cameraStatus,
+        )
+        assertEquals(
+            "Camera permission denied",
+            CameraCaptureUiState().withCameraPermissionResult(granted = false).cameraStatus,
+        )
+    }
+
+    @Test
+    fun withCameraReadyAndErrorUpdateCameraStatus() {
+        assertEquals(
+            "Back camera preview ready",
+            CameraCaptureUiState().withCameraReady().cameraStatus,
+        )
+        assertEquals(
+            "Camera unavailable",
+            CameraCaptureUiState().withCameraError("Camera unavailable").cameraStatus,
+        )
+    }
+
+    @Test
+    fun withNetworkStatusUpdatesNetworkStatus() {
+        val next = CameraCaptureUiState().withNetworkStatus("gRPC streaming")
+
+        assertEquals("gRPC streaming", next.networkStatus)
+    }
+
+    @Test
+    fun detailPanelHelpersCloseAndTogglePanel() {
+        assertFalse(
+            CameraCaptureUiState(detailsPanelOpen = true)
+                .closeDetailsPanel()
+                .detailsPanelOpen,
+        )
+        assertTrue(
+            CameraCaptureUiState(detailsPanelOpen = false)
+                .toggleDetailsPanel()
+                .detailsPanelOpen,
+        )
+        assertFalse(
+            CameraCaptureUiState(detailsPanelOpen = true)
+                .toggleDetailsPanel()
+                .detailsPanelOpen,
+        )
+    }
 }
