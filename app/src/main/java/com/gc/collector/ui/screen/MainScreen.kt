@@ -26,11 +26,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
-import com.gc.collector.camera.CapturedFrame
 import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
+import com.gc.collector.model.FpsCalculator
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.toAppliedState
@@ -220,26 +220,21 @@ fun MainScreen(modifier: Modifier = Modifier) {
         },
         onFrameCaptured = { frame ->
             if (uiState.isCapturing) {
-                val fps = calculateCurrentFps(
-                    frame = frame,
+                val fpsResult = FpsCalculator.calculate(
+                    sensorTimestampNs = frame.sensorTimestampNs,
                     lastWindowStartedNs = lastFpsWindowStartedNs,
                     framesInWindow = framesInCurrentWindow,
-                    onWindowReset = { startedNs ->
-                        lastFpsWindowStartedNs = startedNs
-                        framesInCurrentWindow = 0
-                    },
-                    onFrameCounted = { countedFrames ->
-                        framesInCurrentWindow = countedFrames
-                    },
                     previousFps = uiState.stats.currentFps,
                 )
+                lastFpsWindowStartedNs = fpsResult.windowStartedNs
+                framesInCurrentWindow = fpsResult.framesInWindow
 
                 uiState = uiState.copy(
                     stats = uiState.stats.copy(
                         frameSequence = frame.metadata.frameSequence,
                         lastDeviceTimestampMs = frame.metadata.deviceTimestampMs,
                         lastDeviceMonotonicNs = frame.metadata.deviceMonotonicNs,
-                        currentFps = fps,
+                        currentFps = fpsResult.currentFps,
                     ),
                 )
 
@@ -376,33 +371,6 @@ fun MainScreen(modifier: Modifier = Modifier) {
         },
         onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
     )
-}
-
-private fun calculateCurrentFps(
-    frame: CapturedFrame,
-    lastWindowStartedNs: Long?,
-    framesInWindow: Int,
-    onWindowReset: (Long) -> Unit,
-    onFrameCounted: (Int) -> Unit,
-    previousFps: Float,
-): Float {
-    val startedNs = lastWindowStartedNs
-    if (startedNs == null) {
-        onWindowReset(frame.sensorTimestampNs)
-        onFrameCounted(1)
-        return previousFps
-    }
-
-    val elapsedNs = frame.sensorTimestampNs - startedNs
-    val nextFrameCount = framesInWindow + 1
-    if (elapsedNs >= 1_000_000_000L) {
-        val fps = nextFrameCount * 1_000_000_000f / elapsedNs
-        onWindowReset(frame.sensorTimestampNs)
-        return fps
-    }
-
-    onFrameCounted(nextFrameCount)
-    return previousFps
 }
 
 private fun List<ResolutionOption>.chooseFallbackResolution(): ResolutionOption {
