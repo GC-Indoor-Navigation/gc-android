@@ -1,6 +1,8 @@
 package com.gc.collector.ui.screen
 
 import com.gc.collector.model.CameraCaptureUiState
+import com.gc.collector.model.CameraControlStatus
+import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CollectorUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,5 +71,71 @@ class CollectorViewModelTest {
         val state = viewModel.screenState.value
         assertNull(state.collectorUiState.sessionId)
         assertEquals("Back camera preview ready", state.cameraCaptureUiState.cameraStatus)
+    }
+
+    @Test
+    fun cameraStatusEventsUpdateCameraCaptureState() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onCameraPermissionResult(granted = true)
+        assertEquals("Camera permission granted", viewModel.screenState.value.cameraCaptureUiState.cameraStatus)
+
+        viewModel.onCameraReady()
+        assertEquals("Back camera preview ready", viewModel.screenState.value.cameraCaptureUiState.cameraStatus)
+
+        viewModel.onCameraError("Camera unavailable")
+        assertEquals("Camera unavailable", viewModel.screenState.value.cameraCaptureUiState.cameraStatus)
+    }
+
+    @Test
+    fun cameraControlStatusEventUpdatesCollectorState() {
+        val viewModel = CollectorViewModel()
+        val status = CameraControlStatus(
+            focusLockSupported = true,
+            focusLockApplied = true,
+            exposureLockSupported = false,
+            whiteBalanceLockSupported = true,
+            whiteBalanceLockApplied = true,
+        )
+
+        viewModel.onCameraControlStatus(status)
+
+        assertEquals(status, viewModel.screenState.value.collectorUiState.cameraControlStatus)
+    }
+
+    @Test
+    fun networkStatusEventUpdatesCameraCaptureState() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onNetworkStatusChanged("gRPC streaming")
+
+        assertEquals("gRPC streaming", viewModel.screenState.value.cameraCaptureUiState.networkStatus)
+    }
+
+    @Test
+    fun detailPanelEventsUpdateCameraCaptureState() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onToggleDetailsPanel()
+        assertTrue(viewModel.screenState.value.cameraCaptureUiState.detailsPanelOpen)
+
+        viewModel.onCloseDetailsPanel()
+        assertFalse(viewModel.screenState.value.cameraCaptureUiState.detailsPanelOpen)
+    }
+
+    @Test
+    fun calibrationEventsUpdateCameraCaptureState() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onSingleCaptureRequested()
+        assertEquals("Calibration capture requested", viewModel.screenState.value.cameraCaptureUiState.calibrationStatus)
+        assertTrue(viewModel.screenState.value.cameraCaptureUiState.singleCaptureInProgress)
+
+        viewModel.onCalibrationUploadCompleted(
+            frameSequence = 17L,
+            outcome = CalibrationUploadOutcome.Uploaded,
+        )
+        assertEquals("Calibration uploaded: 17", viewModel.screenState.value.cameraCaptureUiState.calibrationStatus)
+        assertFalse(viewModel.screenState.value.cameraCaptureUiState.singleCaptureInProgress)
     }
 }

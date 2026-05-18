@@ -109,9 +109,7 @@ fun MainScreen(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
             hasCameraPermission = granted
-            collectorViewModel.updateCameraCaptureUiState { state ->
-                state.withCameraPermissionResult(granted)
-            }
+            collectorViewModel.onCameraPermissionResult(granted)
         },
     )
     val settings = uiState.settings
@@ -124,9 +122,7 @@ fun MainScreen(
     }
 
     BackHandler(enabled = cameraCaptureUiState.detailsPanelOpen) {
-        collectorViewModel.updateCameraCaptureUiState { state ->
-            state.closeDetailsPanel()
-        }
+        collectorViewModel.onCloseDetailsPanel()
     }
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !cameraCaptureUiState.detailsPanelOpen) {
@@ -134,9 +130,7 @@ fun MainScreen(
         val nextState = StreamSessionStateReducer.stopped(uiState)
         currentScreenName = CollectorScreen.CameraSetup.name
         collectorViewModel.setCollectorUiState(nextState.uiState)
-        collectorViewModel.updateCameraCaptureUiState { state ->
-            state.withNetworkStatus(nextState.networkStatus)
-        }
+        collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
     }
 
     DisposableEffect(Unit) {
@@ -280,29 +274,21 @@ fun MainScreen(
                     frame = frame,
                 )
                 withContext(Dispatchers.Main) {
-                    collectorViewModel.updateCameraCaptureUiState { state ->
-                        state.completeCalibrationUpload(
-                            frameSequence = frame.metadata.frameSequence,
-                            outcome = InternalCalibrationUploadOutcomeMapper.toOutcome(uploadResult),
-                        )
-                    }
+                    collectorViewModel.onCalibrationUploadCompleted(
+                        frameSequence = frame.metadata.frameSequence,
+                        outcome = InternalCalibrationUploadOutcomeMapper.toOutcome(uploadResult),
+                    )
                 }
             }
         },
         onCameraReady = {
-            collectorViewModel.updateCameraCaptureUiState { state ->
-                state.withCameraReady()
-            }
+            collectorViewModel.onCameraReady()
         },
         onCameraControlStatus = { status ->
-            collectorViewModel.updateCollectorUiState { state ->
-                state.copy(cameraControlStatus = status)
-            }
+            collectorViewModel.onCameraControlStatus(status)
         },
         onCameraError = { message ->
-            collectorViewModel.updateCameraCaptureUiState { state ->
-                state.withCameraError(message)
-            }
+            collectorViewModel.onCameraError(message)
         },
         onStart = {
             val nowMs = System.currentTimeMillis()
@@ -326,9 +312,7 @@ fun MainScreen(
                             endpointHost = endpoint.host,
                             endpointPort = endpoint.port,
                         )
-                        collectorViewModel.updateCameraCaptureUiState { state ->
-                            state.withNetworkStatus(nextState.networkStatus)
-                        }
+                        collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
                         collectorViewModel.setCollectorUiState(nextState.uiState)
                         lastFpsWindowStartedNs = null
                         framesInCurrentWindow = 0
@@ -337,9 +321,7 @@ fun MainScreen(
                             state = uiState,
                             message = error.message ?: "Failed to start gRPC stream",
                         )
-                        collectorViewModel.updateCameraCaptureUiState { state ->
-                            state.withNetworkStatus(nextState.networkStatus)
-                        }
+                        collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
                         collectorViewModel.setCollectorUiState(nextState.uiState)
                     }
                 }
@@ -348,9 +330,7 @@ fun MainScreen(
                         state = uiState,
                         message = error.message ?: "Invalid gRPC endpoint",
                     )
-                    collectorViewModel.updateCameraCaptureUiState { state ->
-                        state.withNetworkStatus(nextState.networkStatus)
-                    }
+                    collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
                     collectorViewModel.setCollectorUiState(nextState.uiState)
                 }
         },
@@ -358,19 +338,13 @@ fun MainScreen(
             frameSender.stop()
             val nextState = StreamSessionStateReducer.stopped(uiState)
             collectorViewModel.setCollectorUiState(nextState.uiState)
-            collectorViewModel.updateCameraCaptureUiState { state ->
-                state.withNetworkStatus(nextState.networkStatus)
-            }
+            collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
         },
         onSingleCapture = {
-            collectorViewModel.updateCameraCaptureUiState { state ->
-                state.requestCalibrationCapture()
-            }
+            collectorViewModel.onSingleCaptureRequested()
         },
         onToggleDetails = {
-            collectorViewModel.updateCameraCaptureUiState { state ->
-                state.toggleDetailsPanel()
-            }
+            collectorViewModel.onToggleDetailsPanel()
         },
         onSettingsChange = { updated ->
             collectorViewModel.updateCollectorUiState { state -> state.copy(settings = updated) }
