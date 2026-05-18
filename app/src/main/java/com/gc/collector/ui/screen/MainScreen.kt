@@ -31,8 +31,8 @@ import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
-import com.gc.collector.model.FpsCalculator
 import com.gc.collector.model.ResolutionOption
+import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.model.toAppliedState
@@ -219,23 +219,16 @@ fun MainScreen(modifier: Modifier = Modifier) {
         },
         onFrameCaptured = { frame ->
             if (uiState.isCapturing) {
-                val fpsResult = FpsCalculator.calculate(
+                val nextFrameState = RuntimeFrameCaptureStateReducer.applyCapturedFrame(
+                    stats = uiState.stats,
+                    metadata = frame.metadata,
                     sensorTimestampNs = frame.sensorTimestampNs,
                     lastWindowStartedNs = lastFpsWindowStartedNs,
                     framesInWindow = framesInCurrentWindow,
-                    previousFps = uiState.stats.currentFps,
                 )
-                lastFpsWindowStartedNs = fpsResult.windowStartedNs
-                framesInCurrentWindow = fpsResult.framesInWindow
-
-                uiState = uiState.copy(
-                    stats = uiState.stats.copy(
-                        frameSequence = frame.metadata.frameSequence,
-                        lastDeviceTimestampMs = frame.metadata.deviceTimestampMs,
-                        lastDeviceMonotonicNs = frame.metadata.deviceMonotonicNs,
-                        currentFps = fpsResult.currentFps,
-                    ),
-                )
+                lastFpsWindowStartedNs = nextFrameState.fpsWindowStartedNs
+                framesInCurrentWindow = nextFrameState.framesInWindow
+                uiState = uiState.copy(stats = nextFrameState.stats)
 
                 coroutineScope.launch(Dispatchers.IO) {
                     val sendResult = frameSender.send(frame)
