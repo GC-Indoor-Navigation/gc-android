@@ -35,10 +35,10 @@ import com.gc.collector.model.FpsCalculator
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.toAppliedState
+import com.gc.collector.network.FrameSendResultReducer
 import com.gc.collector.network.GrpcFrameSender
 import com.gc.collector.network.InternalCalibrationUploader
 import com.gc.collector.network.InternalCalibrationUploadResult
-import com.gc.collector.network.SendResult
 import com.gc.collector.network.parseGrpcEndpoint
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
 import com.gc.collector.ui.theme.GcandroidTheme
@@ -247,34 +247,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 coroutineScope.launch(Dispatchers.IO) {
                     val sendResult = frameSender.send(frame)
                     withContext(Dispatchers.Main) {
-                        when (sendResult) {
-                            SendResult.Sent -> {
-                                uiState = uiState.copy(
-                                    stats = uiState.stats.copy(
-                                        sentCount = uiState.stats.sentCount + 1L,
-                                    ),
-                                )
-                                networkStatus = "gRPC streaming"
-                            }
-
-                            is SendResult.Failed -> {
-                                uiState = uiState.copy(
-                                    stats = uiState.stats.copy(
-                                        failedCount = uiState.stats.failedCount + 1L,
-                                    ),
-                                )
-                                networkStatus = sendResult.message
-                            }
-
-                            SendResult.NotStarted -> {
-                                uiState = uiState.copy(
-                                    stats = uiState.stats.copy(
-                                        droppedFrames = uiState.stats.droppedFrames + 1L,
-                                    ),
-                                )
-                                networkStatus = "gRPC stream not started"
-                            }
-                        }
+                        val nextState = FrameSendResultReducer.reduce(
+                            stats = uiState.stats,
+                            result = sendResult,
+                        )
+                        uiState = uiState.copy(stats = nextState.stats)
+                        networkStatus = nextState.networkStatus
                     }
                 }
             }
