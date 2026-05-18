@@ -30,12 +30,9 @@ import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.ResolutionOption
-import com.gc.collector.model.SessionIdFactory
-import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.network.GrpcFrameSender
 import com.gc.collector.network.InternalCalibrationUploader
-import com.gc.collector.network.parseGrpcEndpoint
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
 import com.gc.collector.ui.theme.GcandroidTheme
 import kotlinx.coroutines.Dispatchers
@@ -117,11 +114,10 @@ fun MainScreen(
     }
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !cameraCaptureUiState.detailsPanelOpen) {
-        frameSender.stop()
-        val nextState = StreamSessionStateReducer.stopped(uiState)
+        collectorViewModel.onStreamStopRequested {
+            frameSender.stop()
+        }
         currentScreenName = CollectorScreen.CameraSetup.name
-        collectorViewModel.setCollectorUiState(nextState.uiState)
-        collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
     }
 
     DisposableEffect(Unit) {
@@ -245,51 +241,27 @@ fun MainScreen(
         onStart = {
             val nowMs = System.currentTimeMillis()
             val nowNs = SystemClock.elapsedRealtimeNanos()
-            val sessionId = SessionIdFactory.create(settings.deviceId, nowMs)
-            parseGrpcEndpoint(settings.serverUrl)
-                .onSuccess { endpoint ->
+            collectorViewModel.onStreamStartRequested(
+                deviceTimestampMs = nowMs,
+                deviceMonotonicNs = nowNs,
+                startStream = { endpoint ->
                     runCatching {
                         frameSender.start(
                             host = endpoint.host,
                             port = endpoint.port,
                             usePlaintext = endpoint.usePlaintext,
                         )
-                    }.onSuccess {
-                        Log.i(collectorLogTag, "Collector session started: $sessionId")
-                        val nextState = StreamSessionStateReducer.startSucceeded(
-                            state = uiState,
-                            sessionId = sessionId,
-                            deviceTimestampMs = nowMs,
-                            deviceMonotonicNs = nowNs,
-                            endpointHost = endpoint.host,
-                            endpointPort = endpoint.port,
-                        )
-                        collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
-                        collectorViewModel.setCollectorUiState(nextState.uiState)
-                        collectorViewModel.resetRuntimeFpsWindow()
-                    }.onFailure { error ->
-                        val nextState = StreamSessionStateReducer.startFailed(
-                            state = uiState,
-                            message = error.message ?: "Failed to start gRPC stream",
-                        )
-                        collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
-                        collectorViewModel.setCollectorUiState(nextState.uiState)
                     }
-                }
-                .onFailure { error ->
-                    val nextState = StreamSessionStateReducer.startFailed(
-                        state = uiState,
-                        message = error.message ?: "Invalid gRPC endpoint",
-                    )
-                    collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
-                    collectorViewModel.setCollectorUiState(nextState.uiState)
-                }
+                },
+                onSessionStarted = { sessionId ->
+                    Log.i(collectorLogTag, "Collector session started: $sessionId")
+                },
+            )
         },
         onStop = {
-            frameSender.stop()
-            val nextState = StreamSessionStateReducer.stopped(uiState)
-            collectorViewModel.setCollectorUiState(nextState.uiState)
-            collectorViewModel.onNetworkStatusChanged(nextState.networkStatus)
+            collectorViewModel.onStreamStopRequested {
+                frameSender.stop()
+            }
         },
         onSingleCapture = {
             collectorViewModel.onSingleCaptureRequested()

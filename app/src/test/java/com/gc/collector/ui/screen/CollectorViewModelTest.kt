@@ -6,6 +6,7 @@ import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.FrameMetadata
+import com.gc.collector.network.GrpcEndpoint
 import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.SendResult
 import org.junit.Assert.assertEquals
@@ -197,6 +198,98 @@ class CollectorViewModelTest {
         val state = viewModel.screenState.value
         assertEquals(1L, state.collectorUiState.stats.sentCount)
         assertEquals("gRPC streaming", state.cameraCaptureUiState.networkStatus)
+    }
+
+    @Test
+    fun streamStartSuccessStartsCaptureAndUpdatesNetworkStatus() {
+        val viewModel = CollectorViewModel()
+        var capturedEndpoint: GrpcEndpoint? = null
+        var loggedSessionId: String? = null
+
+        viewModel.onStreamStartRequested(
+            deviceTimestampMs = 1_779_055_200_000L,
+            deviceMonotonicNs = 12_345_678_900L,
+            startStream = { endpoint ->
+                capturedEndpoint = endpoint
+                Result.success(Unit)
+            },
+            onSessionStarted = { sessionId ->
+                loggedSessionId = sessionId
+            },
+        )
+
+        val state = viewModel.screenState.value
+        assertTrue(state.collectorUiState.isCapturing)
+        assertEquals("localhost", capturedEndpoint?.host)
+        assertEquals(50051, capturedEndpoint?.port)
+        assertTrue(capturedEndpoint?.usePlaintext == true)
+        assertEquals(state.collectorUiState.sessionId, loggedSessionId)
+        assertTrue(state.collectorUiState.sessionId?.startsWith("android_device_001_") == true)
+        assertEquals(0L, state.collectorUiState.stats.frameSequence)
+        assertEquals(1_779_055_200_000L, state.collectorUiState.stats.lastDeviceTimestampMs)
+        assertEquals(12_345_678_900L, state.collectorUiState.stats.lastDeviceMonotonicNs)
+        assertEquals("gRPC connected to localhost:50051", state.cameraCaptureUiState.networkStatus)
+    }
+
+    @Test
+    fun streamStartFailureKeepsCaptureStoppedAndUpdatesNetworkStatus() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onStreamStartRequested(
+            deviceTimestampMs = 1_779_055_200_000L,
+            deviceMonotonicNs = 12_345_678_900L,
+            startStream = {
+                Result.failure(IllegalStateException("socket unavailable"))
+            },
+        )
+
+        val state = viewModel.screenState.value
+        assertFalse(state.collectorUiState.isCapturing)
+        assertNull(state.collectorUiState.sessionId)
+        assertEquals(1L, state.collectorUiState.stats.failedCount)
+        assertEquals("socket unavailable", state.cameraCaptureUiState.networkStatus)
+    }
+
+    @Test
+    fun streamStartInvalidEndpointDoesNotStartStream() {
+        val viewModel = CollectorViewModel()
+        var startCalled = false
+        viewModel.updateCollectorUiState { state ->
+            state.copy(settings = state.settings.copy(serverUrl = " "))
+        }
+
+        viewModel.onStreamStartRequested(
+            deviceTimestampMs = 1_779_055_200_000L,
+            deviceMonotonicNs = 12_345_678_900L,
+            startStream = {
+                startCalled = true
+                Result.success(Unit)
+            },
+        )
+
+        val state = viewModel.screenState.value
+        assertFalse(startCalled)
+        assertFalse(state.collectorUiState.isCapturing)
+        assertNull(state.collectorUiState.sessionId)
+        assertEquals(1L, state.collectorUiState.stats.failedCount)
+        assertEquals("Server address is empty", state.cameraCaptureUiState.networkStatus)
+    }
+
+    @Test
+    fun streamStopStopsCaptureAndRunsStopCallback() {
+        val viewModel = CollectorViewModel()
+        var stopCalled = false
+        viewModel.setCollectorUiState(CollectorUiState(isCapturing = true, sessionId = "session_01"))
+
+        viewModel.onStreamStopRequested {
+            stopCalled = true
+        }
+
+        val state = viewModel.screenState.value
+        assertTrue(stopCalled)
+        assertFalse(state.collectorUiState.isCapturing)
+        assertNull(state.collectorUiState.sessionId)
+        assertEquals("gRPC stopped", state.cameraCaptureUiState.networkStatus)
     }
 
     private fun sampleFrame(

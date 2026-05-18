@@ -9,10 +9,15 @@ import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.RuntimeFrameCaptureStateReducer
+import com.gc.collector.model.SessionIdFactory
+import com.gc.collector.model.StreamSessionState
+import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.network.FrameSendUiStateReducer
+import com.gc.collector.network.GrpcEndpoint
 import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
 import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.SendResult
+import com.gc.collector.network.parseGrpcEndpoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -132,6 +137,52 @@ class CollectorViewModel : ViewModel() {
         }
     }
 
+    fun onStreamStartRequested(
+        deviceTimestampMs: Long,
+        deviceMonotonicNs: Long,
+        startStream: (GrpcEndpoint) -> Result<Unit>,
+        onSessionStarted: (String) -> Unit = {},
+    ) {
+        val current = screenState.value.collectorUiState
+        val settings = current.settings
+        val sessionId = SessionIdFactory.create(settings.deviceId, deviceTimestampMs)
+
+        parseGrpcEndpoint(settings.serverUrl)
+            .onSuccess { endpoint ->
+                startStream(endpoint)
+                    .onSuccess {
+                        onSessionStarted(sessionId)
+                        val nextState = StreamSessionStateReducer.startSucceeded(
+                            state = current,
+                            sessionId = sessionId,
+                            deviceTimestampMs = deviceTimestampMs,
+                            deviceMonotonicNs = deviceMonotonicNs,
+                            endpointHost = endpoint.host,
+                            endpointPort = endpoint.port,
+                        )
+                        resetRuntimeFpsWindow()
+                        applyStreamSessionState(nextState)
+                    }
+                    .onFailure { error ->
+                        onStreamStartFailed(
+                            state = current,
+                            message = error.message ?: "Failed to start gRPC stream",
+                        )
+                    }
+            }
+            .onFailure { error ->
+                onStreamStartFailed(
+                    state = current,
+                    message = error.message ?: "Invalid gRPC endpoint",
+                )
+            }
+    }
+
+    fun onStreamStopRequested(stopStream: () -> Unit) {
+        stopStream()
+        applyStreamSessionState(StreamSessionStateReducer.stopped(screenState.value.collectorUiState))
+    }
+
     fun resetRuntimeFpsWindow() {
         runtimeFpsWindowStartedNs = null
         runtimeFramesInWindow = 0
@@ -170,6 +221,27 @@ class CollectorViewModel : ViewModel() {
             current.copy(
                 collectorUiState = nextState.collectorUiState,
                 cameraCaptureUiState = nextState.cameraCaptureUiState,
+            )
+        }
+    }
+
+    private fun onStreamStartFailed(
+        state: CollectorUiState,
+        message: String,
+    ) {
+        applyStreamSessionState(
+            StreamSessionStateReducer.startFailed(
+                state = state,
+                message = message,
+            ),
+        )
+    }
+
+    private fun applyStreamSessionState(nextState: StreamSessionState) {
+        _screenState.update { current ->
+            current.copy(
+                collectorUiState = nextState.uiState,
+                cameraCaptureUiState = current.cameraCaptureUiState.withNetworkStatus(nextState.networkStatus),
             )
         }
     }
