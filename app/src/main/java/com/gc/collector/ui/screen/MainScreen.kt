@@ -16,7 +16,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -492,70 +491,6 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun ModeSelectionScreen(
-    onCameraMode: () -> Unit,
-    onUseMode: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .safeDrawingPadding()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = "GC Android Collector",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        ModeCard(
-            title = "Camera Mode",
-            description = "Configure capture settings and collect timestamped camera frames.",
-            onClick = onCameraMode,
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        ModeCard(
-            title = "Use Mode",
-            description = "Runtime device mode for future collection workflows.",
-            onClick = onUseMode,
-        )
-    }
-}
-
-@Composable
-private fun ModeCard(
-    title: String,
-    description: String,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        tonalElevation = 2.dp,
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
