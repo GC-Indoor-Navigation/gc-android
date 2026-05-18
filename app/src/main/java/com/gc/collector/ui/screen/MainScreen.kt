@@ -27,7 +27,6 @@ import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationCaptureStateReducer
-import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
@@ -38,8 +37,8 @@ import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.network.FrameSendResultReducer
 import com.gc.collector.network.GrpcFrameSender
+import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
 import com.gc.collector.network.InternalCalibrationUploader
-import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.parseGrpcEndpoint
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
 import com.gc.collector.ui.theme.GcandroidTheme
@@ -257,13 +256,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     frame = frame,
                 )
                 withContext(Dispatchers.Main) {
-                    val outcome = when (uploadResult) {
-                        InternalCalibrationUploadResult.Uploaded -> CalibrationUploadOutcome.Uploaded
-                        is InternalCalibrationUploadResult.Failed -> CalibrationUploadOutcome.Failed(uploadResult.message)
-                    }
                     cameraCaptureUiState = cameraCaptureUiState.completeCalibrationUpload(
                         frameSequence = frame.metadata.frameSequence,
-                        outcome = outcome,
+                        outcome = InternalCalibrationUploadOutcomeMapper.toOutcome(uploadResult),
                     )
                 }
             }
