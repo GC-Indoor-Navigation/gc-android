@@ -6,6 +6,7 @@ import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.FrameMetadata
+import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.SendResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -140,6 +141,20 @@ class CollectorViewModelTest {
         )
         assertEquals("Calibration uploaded: 17", viewModel.screenState.value.cameraCaptureUiState.calibrationStatus)
         assertFalse(viewModel.screenState.value.cameraCaptureUiState.singleCaptureInProgress)
+    }
+
+    @Test
+    fun calibrationFrameCapturedUpdatesStats() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onCalibrationFrameCaptured(sampleFrame(frameSequence = 21L)) {
+            InternalCalibrationUploadResult.Uploaded
+        }
+
+        val stats = viewModel.screenState.value.collectorUiState.stats
+        assertEquals(21L, stats.frameSequence)
+        assertEquals(1_775_404_088_703L, stats.lastDeviceTimestampMs)
+        assertEquals(8_234_567_812_345L, stats.lastDeviceMonotonicNs)
     }
 
     @Test

@@ -16,7 +16,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -29,20 +28,17 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStoreOwner
 import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CameraControlStatus
-import com.gc.collector.model.CalibrationCaptureStateReducer
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.StreamSessionStateReducer
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.network.GrpcFrameSender
-import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
 import com.gc.collector.network.InternalCalibrationUploader
 import com.gc.collector.network.parseGrpcEndpoint
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
 import com.gc.collector.ui.theme.GcandroidTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val collectorLogTag = "GcCollector"
@@ -100,7 +96,6 @@ fun MainScreen(
     var resolutionOptionsStatus by rememberSaveable { mutableStateOf("common resolution presets") }
     val frameSender = remember { GrpcFrameSender() }
     val calibrationUploader = remember { InternalCalibrationUploader() }
-    val coroutineScope = rememberCoroutineScope()
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
@@ -231,26 +226,11 @@ fun MainScreen(
             }
         },
         onSingleFrameCaptured = { frame ->
-            collectorViewModel.updateCollectorUiState { state ->
-                state.copy(
-                    stats = CalibrationCaptureStateReducer.applyCapturedFrame(
-                        stats = state.stats,
-                        metadata = frame.metadata,
-                    ),
-                )
-            }
-
-            coroutineScope.launch(Dispatchers.IO) {
-                val uploadResult = calibrationUploader.upload(
+            collectorViewModel.onCalibrationFrameCaptured(frame) { capturedFrame ->
+                calibrationUploader.upload(
                     baseUrl = settings.calibrationHttpBaseUrl,
-                    frame = frame,
+                    frame = capturedFrame,
                 )
-                withContext(Dispatchers.Main) {
-                    collectorViewModel.onCalibrationUploadCompleted(
-                        frameSequence = frame.metadata.frameSequence,
-                        outcome = InternalCalibrationUploadOutcomeMapper.toOutcome(uploadResult),
-                    )
-                }
             }
         },
         onCameraReady = {

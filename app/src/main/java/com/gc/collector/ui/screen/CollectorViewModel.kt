@@ -4,11 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gc.collector.camera.CapturedFrame
 import com.gc.collector.model.CameraCaptureUiState
+import com.gc.collector.model.CalibrationCaptureStateReducer
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.network.FrameSendUiStateReducer
+import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
+import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.SendResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,6 +106,28 @@ class CollectorViewModel : ViewModel() {
             state.completeCalibrationUpload(
                 frameSequence = frameSequence,
                 outcome = outcome,
+            )
+        }
+    }
+
+    fun onCalibrationFrameCaptured(
+        frame: CapturedFrame,
+        uploadFrame: (CapturedFrame) -> InternalCalibrationUploadResult,
+    ) {
+        updateCollectorUiState { state ->
+            state.copy(
+                stats = CalibrationCaptureStateReducer.applyCapturedFrame(
+                    stats = state.stats,
+                    metadata = frame.metadata,
+                ),
+            )
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val uploadResult = uploadFrame(frame)
+            onCalibrationUploadCompleted(
+                frameSequence = frame.metadata.frameSequence,
+                outcome = InternalCalibrationUploadOutcomeMapper.toOutcome(uploadResult),
             )
         }
     }
