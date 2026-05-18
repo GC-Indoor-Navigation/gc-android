@@ -26,9 +26,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import com.gc.collector.model.CameraCaptureSettings
 import com.gc.collector.model.CameraControlStatus
-import com.gc.collector.model.CalibrationCaptureState
 import com.gc.collector.model.CalibrationCaptureStateReducer
 import com.gc.collector.model.CalibrationUploadOutcome
+import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CaptureStats
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.FpsCalculator
@@ -81,20 +81,17 @@ fun MainScreen(modifier: Modifier = Modifier) {
     var uiState by rememberSaveable(stateSaver = collectorUiStateSaver()) {
         mutableStateOf(CollectorUiState())
     }
+    var cameraCaptureUiState by rememberSaveable(stateSaver = cameraCaptureUiStateSaver()) {
+        mutableStateOf(CameraCaptureUiState())
+    }
     val currentScreen = CollectorScreen.valueOf(currentScreenName)
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PERMISSION_GRANTED,
         )
     }
-    var cameraStatus by remember { mutableStateOf("Camera preview not started") }
-    var detailsPanelOpen by rememberSaveable { mutableStateOf(false) }
     var lastFpsWindowStartedNs by remember { mutableStateOf<Long?>(null) }
     var framesInCurrentWindow by remember { mutableStateOf(0) }
-    var networkStatus by rememberSaveable { mutableStateOf("gRPC disconnected") }
-    var calibrationStatus by rememberSaveable { mutableStateOf("Calibration idle") }
-    var calibrationCaptureRequestId by rememberSaveable { mutableStateOf(0L) }
-    var calibrationUploadInProgress by rememberSaveable { mutableStateOf(false) }
     var resolutionOptions by remember { mutableStateOf(ResolutionOption.commonOptions) }
     var resolutionOptionsStatus by rememberSaveable { mutableStateOf("common resolution presets") }
     val frameSender = remember { GrpcFrameSender() }
@@ -104,20 +101,18 @@ fun MainScreen(modifier: Modifier = Modifier) {
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
             hasCameraPermission = granted
-            cameraStatus = if (granted) {
-                "Camera permission granted"
-            } else {
-                "Camera permission denied"
-            }
+            cameraCaptureUiState = cameraCaptureUiState.copy(
+                cameraStatus = if (granted) {
+                    "Camera permission granted"
+                } else {
+                    "Camera permission denied"
+                },
+            )
         },
     )
     val settings = uiState.settings
     val stats = uiState.stats
-    val calibrationCaptureState = CalibrationCaptureState(
-        status = calibrationStatus,
-        captureRequestId = calibrationCaptureRequestId,
-        uploadInProgress = calibrationUploadInProgress,
-    )
+    val calibrationCaptureState = cameraCaptureUiState.calibrationCapture
 
     KeepScreenOn(enabled = currentScreen == CollectorScreen.CameraCapture)
 
@@ -125,16 +120,16 @@ fun MainScreen(modifier: Modifier = Modifier) {
         currentScreenName = CollectorScreen.ModeSelection.name
     }
 
-    BackHandler(enabled = detailsPanelOpen) {
-        detailsPanelOpen = false
+    BackHandler(enabled = cameraCaptureUiState.detailsPanelOpen) {
+        cameraCaptureUiState = cameraCaptureUiState.copy(detailsPanelOpen = false)
     }
 
-    BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !detailsPanelOpen) {
+    BackHandler(enabled = currentScreen == CollectorScreen.CameraCapture && !cameraCaptureUiState.detailsPanelOpen) {
         frameSender.stop()
         val nextState = StreamSessionStateReducer.stopped(uiState)
         currentScreenName = CollectorScreen.CameraSetup.name
         uiState = nextState.uiState
-        networkStatus = nextState.networkStatus
+        cameraCaptureUiState = cameraCaptureUiState.copy(networkStatus = nextState.networkStatus)
     }
 
     DisposableEffect(Unit) {
@@ -212,16 +207,19 @@ fun MainScreen(modifier: Modifier = Modifier) {
         stats = stats,
         sessionId = uiState.sessionId,
         hasCameraPermission = hasCameraPermission,
-        cameraStatus = cameraStatus,
-        networkStatus = networkStatus,
-        calibrationStatus = calibrationStatus,
+        cameraStatus = cameraCaptureUiState.cameraStatus,
+        networkStatus = cameraCaptureUiState.networkStatus,
+        calibrationStatus = calibrationCaptureState.status,
         controlStatus = uiState.cameraControlStatus,
         isCapturing = uiState.isCapturing,
-        isDetailsOpen = detailsPanelOpen,
+        isDetailsOpen = cameraCaptureUiState.detailsPanelOpen,
         isLandscape = isLandscape,
-        singleCaptureRequestId = calibrationCaptureRequestId,
-        singleCaptureEnabled = hasCameraPermission && !uiState.isCapturing && !calibrationUploadInProgress,
-        singleCaptureInProgress = calibrationUploadInProgress,
+        singleCaptureRequestId = calibrationCaptureState.captureRequestId,
+        singleCaptureEnabled = cameraCaptureUiState.singleCaptureEnabled(
+            hasCameraPermission = hasCameraPermission,
+            isCapturing = uiState.isCapturing,
+        ),
+        singleCaptureInProgress = calibrationCaptureState.uploadInProgress,
         nextFrameSequence = { uiState.stats.frameSequence + 1L },
         onRequestCameraPermission = {
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -254,7 +252,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             result = sendResult,
                         )
                         uiState = uiState.copy(stats = nextState.stats)
-                        networkStatus = nextState.networkStatus
+                        cameraCaptureUiState = cameraCaptureUiState.copy(networkStatus = nextState.networkStatus)
                     }
                 }
             }
@@ -278,28 +276,22 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         is InternalCalibrationUploadResult.Failed -> CalibrationUploadOutcome.Failed(uploadResult.message)
                     }
                     val nextState = CalibrationCaptureStateReducer.completeUpload(
-                        state = CalibrationCaptureState(
-                            status = calibrationStatus,
-                            captureRequestId = calibrationCaptureRequestId,
-                            uploadInProgress = calibrationUploadInProgress,
-                        ),
+                        state = cameraCaptureUiState.calibrationCapture,
                         frameSequence = frame.metadata.frameSequence,
                         outcome = outcome,
                     )
-                    calibrationStatus = nextState.status
-                    calibrationCaptureRequestId = nextState.captureRequestId
-                    calibrationUploadInProgress = nextState.uploadInProgress
+                    cameraCaptureUiState = cameraCaptureUiState.copy(calibrationCapture = nextState)
                 }
             }
         },
         onCameraReady = {
-            cameraStatus = "Back camera preview ready"
+            cameraCaptureUiState = cameraCaptureUiState.copy(cameraStatus = "Back camera preview ready")
         },
         onCameraControlStatus = { status ->
             uiState = uiState.copy(cameraControlStatus = status)
         },
         onCameraError = { message ->
-            cameraStatus = message
+            cameraCaptureUiState = cameraCaptureUiState.copy(cameraStatus = message)
         },
         onStart = {
             val nowMs = System.currentTimeMillis()
@@ -323,7 +315,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             endpointHost = endpoint.host,
                             endpointPort = endpoint.port,
                         )
-                        networkStatus = nextState.networkStatus
+                        cameraCaptureUiState = cameraCaptureUiState.copy(networkStatus = nextState.networkStatus)
                         uiState = nextState.uiState
                         lastFpsWindowStartedNs = null
                         framesInCurrentWindow = 0
@@ -332,7 +324,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             state = uiState,
                             message = error.message ?: "Failed to start gRPC stream",
                         )
-                        networkStatus = nextState.networkStatus
+                        cameraCaptureUiState = cameraCaptureUiState.copy(networkStatus = nextState.networkStatus)
                         uiState = nextState.uiState
                     }
                 }
@@ -341,7 +333,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         state = uiState,
                         message = error.message ?: "Invalid gRPC endpoint",
                     )
-                    networkStatus = nextState.networkStatus
+                    cameraCaptureUiState = cameraCaptureUiState.copy(networkStatus = nextState.networkStatus)
                     uiState = nextState.uiState
                 }
         },
@@ -349,16 +341,16 @@ fun MainScreen(modifier: Modifier = Modifier) {
             frameSender.stop()
             val nextState = StreamSessionStateReducer.stopped(uiState)
             uiState = nextState.uiState
-            networkStatus = nextState.networkStatus
+            cameraCaptureUiState = cameraCaptureUiState.copy(networkStatus = nextState.networkStatus)
         },
         onSingleCapture = {
             val nextState = CalibrationCaptureStateReducer.requestCapture(calibrationCaptureState)
-            calibrationStatus = nextState.status
-            calibrationCaptureRequestId = nextState.captureRequestId
-            calibrationUploadInProgress = nextState.uploadInProgress
+            cameraCaptureUiState = cameraCaptureUiState.copy(calibrationCapture = nextState)
         },
         onToggleDetails = {
-            detailsPanelOpen = !detailsPanelOpen
+            cameraCaptureUiState = cameraCaptureUiState.copy(
+                detailsPanelOpen = !cameraCaptureUiState.detailsPanelOpen,
+            )
         },
         onSettingsChange = { updated -> uiState = uiState.copy(settings = updated) },
     )
