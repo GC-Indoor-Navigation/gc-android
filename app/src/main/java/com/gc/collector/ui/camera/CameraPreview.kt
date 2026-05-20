@@ -83,6 +83,11 @@ fun CameraPreview(
     val currentOnCameraReady = rememberUpdatedState(onCameraReady)
     val currentOnCameraError = rememberUpdatedState(onCameraError)
     val handledSingleCaptureRequestId = remember { AtomicLong(0L) }
+    val runtimeFrameRateLimiter = remember { RuntimeFrameRateLimiter() }
+
+    LaunchedEffect(settings.fpsTarget, sessionId) {
+        runtimeFrameRateLimiter.reset()
+    }
 
     LaunchedEffect(
         context,
@@ -143,7 +148,15 @@ fun CameraPreview(
                                         handledSingleCaptureRequestId.set(requestId)
                                     }
 
-                                    if (currentIsAnalyzing.value || shouldCaptureSingleFrame) {
+                                    val sensorTimestampNs = imageProxy.imageInfo.timestamp
+                                    val shouldEmitRuntimeFrame = !shouldCaptureSingleFrame &&
+                                        currentIsAnalyzing.value &&
+                                        runtimeFrameRateLimiter.shouldEmit(
+                                            sensorTimestampNs = sensorTimestampNs,
+                                            targetFps = settings.fpsTarget,
+                                        )
+
+                                    if (shouldEmitRuntimeFrame || shouldCaptureSingleFrame) {
                                         val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                                         val frameSize = imageProxy.rotatedSize(rotationDegrees)
                                         val metadata = FrameMetadataFactory.create(
@@ -162,7 +175,7 @@ fun CameraPreview(
                                         val capturedFrame = CapturedFrame(
                                             jpegBytes = jpegBytes,
                                             metadata = metadata,
-                                            sensorTimestampNs = imageProxy.imageInfo.timestamp,
+                                            sensorTimestampNs = sensorTimestampNs,
                                         )
                                         mainExecutor.execute {
                                             if (shouldCaptureSingleFrame) {
