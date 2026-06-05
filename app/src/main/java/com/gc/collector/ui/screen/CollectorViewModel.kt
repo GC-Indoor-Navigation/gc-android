@@ -12,6 +12,9 @@ import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.StreamSessionState
 import com.gc.collector.model.StreamSessionStateReducer
+import com.gc.collector.model.UserAlertEventOutcome
+import com.gc.collector.model.UserAlertStateReducer
+import com.gc.collector.model.UserModeConnectionStateReducer
 import com.gc.collector.network.FrameSendUiStateReducer
 import com.gc.collector.network.GrpcEndpoint
 import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
@@ -223,6 +226,76 @@ class CollectorViewModel : ViewModel() {
                 cameraCaptureUiState = nextState.cameraCaptureUiState,
             )
         }
+    }
+
+    fun onUserModeStartRequested() {
+        _screenState.update { current ->
+            current.copy(
+                userModeConnectionState = UserModeConnectionStateReducer.start(
+                    current.userModeConnectionState,
+                ),
+            )
+        }
+    }
+
+    fun onUserModeConnected(nowMs: Long) {
+        _screenState.update { current ->
+            current.copy(
+                userModeConnectionState = UserModeConnectionStateReducer.connected(
+                    state = current.userModeConnectionState,
+                    nowMs = nowMs,
+                ),
+            )
+        }
+    }
+
+    fun onUserModeConnectionFailed(message: String) {
+        _screenState.update { current ->
+            current.copy(
+                userModeConnectionState = UserModeConnectionStateReducer.failed(
+                    state = current.userModeConnectionState,
+                    message = message,
+                ),
+            )
+        }
+    }
+
+    fun onUserModeStreamCompleted() {
+        _screenState.update { current ->
+            current.copy(
+                userModeConnectionState = UserModeConnectionStateReducer.completed(
+                    current.userModeConnectionState,
+                ),
+            )
+        }
+    }
+
+    fun onUserModeStopRequested(cancelConnection: () -> Unit = {}) {
+        cancelConnection()
+        _screenState.update { current ->
+            current.copy(
+                userModeConnectionState = UserModeConnectionStateReducer.stopped(
+                    current.userModeConnectionState,
+                ),
+            )
+        }
+    }
+
+    fun onUserModeAlertData(
+        data: String,
+        nowMs: Long,
+    ): UserAlertEventOutcome {
+        var outcome: UserAlertEventOutcome? = null
+        _screenState.update { current ->
+            val reduced = UserAlertStateReducer.reduceSseData(
+                state = current.userAlertState,
+                data = data,
+                nowMs = nowMs,
+            )
+            outcome = reduced.second
+            current.copy(userAlertState = reduced.first)
+        }
+        return checkNotNull(outcome)
     }
 
     private fun onStreamStartFailed(

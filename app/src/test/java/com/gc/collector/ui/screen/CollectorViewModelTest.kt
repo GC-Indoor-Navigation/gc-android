@@ -6,6 +6,9 @@ import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.FrameMetadata
+import com.gc.collector.model.ProcessingAlertSeverity
+import com.gc.collector.model.UserAlertEventOutcome
+import com.gc.collector.model.UserModeConnectionStatus
 import com.gc.collector.network.GrpcEndpoint
 import com.gc.collector.network.InternalCalibrationUploadResult
 import com.gc.collector.network.SendResult
@@ -27,6 +30,9 @@ class CollectorViewModelTest {
         assertEquals("gRPC disconnected", state.cameraCaptureUiState.networkStatus)
         assertFalse(state.cameraCaptureUiState.detailsPanelOpen)
         assertEquals("Calibration idle", state.cameraCaptureUiState.calibrationStatus)
+        assertFalse(state.userModeConnectionState.enabled)
+        assertEquals(UserModeConnectionStatus.Idle, state.userModeConnectionState.status)
+        assertEquals("User mode idle", state.userAlertState.status)
     }
 
     @Test
@@ -292,6 +298,102 @@ class CollectorViewModelTest {
         assertEquals("gRPC stopped", state.cameraCaptureUiState.networkStatus)
     }
 
+    @Test
+    fun userModeStartAndConnectedUpdateConnectionState() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onUserModeStartRequested()
+        assertTrue(viewModel.screenState.value.userModeConnectionState.enabled)
+        assertEquals(UserModeConnectionStatus.Connecting, viewModel.screenState.value.userModeConnectionState.status)
+        assertEquals(1L, viewModel.screenState.value.userModeConnectionState.connectAttempt)
+
+        viewModel.onUserModeConnected(nowMs = 1234L)
+
+        val state = viewModel.screenState.value.userModeConnectionState
+        assertTrue(state.enabled)
+        assertEquals(UserModeConnectionStatus.Connected, state.status)
+        assertEquals(1234L, state.lastConnectedAtMs)
+    }
+
+    @Test
+    fun userModeFailureWhileEnabledSchedulesReconnect() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onUserModeStartRequested()
+        viewModel.onUserModeConnectionFailed("network closed")
+
+        val state = viewModel.screenState.value.userModeConnectionState
+        assertTrue(state.enabled)
+        assertEquals(UserModeConnectionStatus.Reconnecting, state.status)
+        assertEquals(1L, state.reconnectCount)
+        assertEquals("network closed", state.lastError)
+    }
+
+    @Test
+    fun userModeStopCancelsConnectionAndDisablesMode() {
+        val viewModel = CollectorViewModel()
+        var cancelCalled = false
+
+        viewModel.onUserModeStartRequested()
+        viewModel.onUserModeStopRequested {
+            cancelCalled = true
+        }
+
+        val state = viewModel.screenState.value.userModeConnectionState
+        assertTrue(cancelCalled)
+        assertFalse(state.enabled)
+        assertEquals(UserModeConnectionStatus.Stopped, state.status)
+    }
+
+    @Test
+    fun userModeStreamCompletedWhileEnabledSchedulesReconnect() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onUserModeStartRequested()
+        viewModel.onUserModeConnected(nowMs = 1234L)
+        viewModel.onUserModeStreamCompleted()
+
+        val state = viewModel.screenState.value.userModeConnectionState
+        assertTrue(state.enabled)
+        assertEquals(UserModeConnectionStatus.Reconnecting, state.status)
+        assertEquals(1L, state.reconnectCount)
+    }
+
+    @Test
+    fun userModeAlertDataUpdatesAlertStateAndReturnsOutcome() {
+        val viewModel = CollectorViewModel()
+
+        val outcome = viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "alert-1", severity = "danger"),
+            nowMs = 1_780_624_971_101L,
+        )
+
+        val state = viewModel.screenState.value.userAlertState
+        assertTrue(outcome is UserAlertEventOutcome.Accepted)
+        assertEquals("alert-1", state.latestAlert?.eventId)
+        assertEquals(ProcessingAlertSeverity.Danger, state.latestAlert?.severity)
+        assertEquals(1L, state.receivedCount)
+    }
+
+    @Test
+    fun userModeAlertDataDropsDuplicate() {
+        val viewModel = CollectorViewModel()
+
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "alert-1"),
+            nowMs = 1_780_624_971_101L,
+        )
+        val outcome = viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "alert-1"),
+            nowMs = 1_780_624_971_101L,
+        )
+
+        val state = viewModel.screenState.value.userAlertState
+        assertTrue(outcome is UserAlertEventOutcome.Duplicate)
+        assertEquals(1L, state.receivedCount)
+        assertEquals(1L, state.duplicateCount)
+    }
+
     private fun sampleFrame(
         frameSequence: Long,
         sensorTimestampNs: Long = 1_000L,
@@ -336,5 +438,35 @@ class CollectorViewModelTest {
             ),
             sensorTimestampNs = sensorTimestampNs,
         )
+    }
+
+    private fun sampleAlertPayload(
+        eventId: String,
+        severity: String = "warning",
+    ): String {
+        return """
+            {
+              "event_id": "$eventId",
+              "frame_set_id": 100,
+              "relay_run_id": 1,
+              "timestamp_ms": 1780624911102,
+              "severity": "$severity",
+              "distance_m": 0.62,
+              "joint": "pelvis",
+              "obstacle_id": "unknown",
+              "ttl_ms": 60000,
+              "source": {
+                "processor": "mmpose_triangulation",
+                "camera_devices": ["android_device_001"]
+              },
+              "received_at_ms": 1780624911413,
+              "expires_at_ms": 1780624971102,
+              "routing": {
+                "camera_devices": ["android_device_001"],
+                "session_id": null,
+                "delivery_status": "not_delivered"
+              }
+            }
+        """.trimIndent()
     }
 }
