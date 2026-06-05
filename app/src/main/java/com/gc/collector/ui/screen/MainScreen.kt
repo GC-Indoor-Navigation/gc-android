@@ -139,7 +139,7 @@ fun MainScreen(
                 alertState = screenState.userAlertState,
                 onToggleUserMode = { enabled ->
                     if (enabled) {
-                        collectorViewModel.onUserModeStartRequested()
+                        collectorViewModel.onUserModeStartRequested(connectToServer = true)
                     } else {
                         collectorViewModel.onUserModeStopRequested()
                     }

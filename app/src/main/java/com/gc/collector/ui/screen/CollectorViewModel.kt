@@ -19,20 +19,38 @@ import com.gc.collector.network.FrameSendUiStateReducer
 import com.gc.collector.network.GrpcEndpoint
 import com.gc.collector.network.InternalCalibrationUploadOutcomeMapper
 import com.gc.collector.network.InternalCalibrationUploadResult
+import com.gc.collector.network.PhoneAlertSseCallHandle
+import com.gc.collector.network.PhoneAlertSseClient
+import com.gc.collector.network.PhoneAlertSseConnector
+import com.gc.collector.network.PhoneAlertSseResult
 import com.gc.collector.network.SendResult
 import com.gc.collector.network.parseGrpcEndpoint
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class CollectorViewModel : ViewModel() {
+class CollectorViewModel(
+    private val phoneAlertSseConnector: PhoneAlertSseConnector,
+    private val currentTimeMs: () -> Long,
+    private val reconnectDelayMs: Long,
+) : ViewModel() {
+    constructor() : this(
+        phoneAlertSseConnector = PhoneAlertSseClient(),
+        currentTimeMs = { System.currentTimeMillis() },
+        reconnectDelayMs = 1_000L,
+    )
+
     private val _screenState = MutableStateFlow(CollectorScreenState())
     val screenState: StateFlow<CollectorScreenState> = _screenState.asStateFlow()
     private var runtimeFpsWindowStartedNs: Long? = null
     private var runtimeFramesInWindow: Int = 0
+    private var userModeAlertJob: Job? = null
+    private var userModeAlertCall: PhoneAlertSseCallHandle? = null
 
     fun setCollectorUiState(state: CollectorUiState) {
         _screenState.update { current ->
@@ -228,13 +246,16 @@ class CollectorViewModel : ViewModel() {
         }
     }
 
-    fun onUserModeStartRequested() {
+    fun onUserModeStartRequested(connectToServer: Boolean = false) {
         _screenState.update { current ->
             current.copy(
                 userModeConnectionState = UserModeConnectionStateReducer.start(
                     current.userModeConnectionState,
                 ),
             )
+        }
+        if (connectToServer) {
+            startUserModeAlertLoop()
         }
     }
 
@@ -272,6 +293,10 @@ class CollectorViewModel : ViewModel() {
 
     fun onUserModeStopRequested(cancelConnection: () -> Unit = {}) {
         cancelConnection()
+        userModeAlertCall?.cancel()
+        userModeAlertCall = null
+        userModeAlertJob?.cancel()
+        userModeAlertJob = null
         _screenState.update { current ->
             current.copy(
                 userModeConnectionState = UserModeConnectionStateReducer.stopped(
@@ -296,6 +321,63 @@ class CollectorViewModel : ViewModel() {
             current.copy(userAlertState = reduced.first)
         }
         return checkNotNull(outcome)
+    }
+
+    private fun startUserModeAlertLoop() {
+        userModeAlertJob?.cancel()
+        userModeAlertCall?.cancel()
+        userModeAlertCall = null
+        userModeAlertJob = viewModelScope.launch(Dispatchers.IO) {
+            while (screenState.value.userModeConnectionState.enabled) {
+                val settings = screenState.value.collectorUiState.settings
+                val callResult = phoneAlertSseConnector.open(
+                    baseUrl = settings.calibrationHttpBaseUrl,
+                    deviceId = settings.deviceId,
+                    onEvent = { event ->
+                        onUserModeAlertData(
+                            data = event.data,
+                            nowMs = currentTimeMs(),
+                        )
+                    },
+                )
+                val call = callResult.getOrNull()
+                if (call == null) {
+                    val error = callResult.exceptionOrNull()
+                    onUserModeConnectionFailed(error?.message ?: error?.javaClass?.simpleName ?: "Failed to open SSE stream")
+                    delayBeforeReconnectIfEnabled()
+                    continue
+                }
+
+                userModeAlertCall = call
+                onUserModeConnected(currentTimeMs())
+                val result = call.execute()
+                if (userModeAlertCall === call) {
+                    userModeAlertCall = null
+                }
+                applyUserModeSseResult(result)
+                delayBeforeReconnectIfEnabled()
+            }
+        }
+    }
+
+    private fun applyUserModeSseResult(result: PhoneAlertSseResult) {
+        if (!screenState.value.userModeConnectionState.enabled) {
+            return
+        }
+
+        when (result) {
+            PhoneAlertSseResult.Completed -> onUserModeStreamCompleted()
+            PhoneAlertSseResult.Cancelled -> Unit
+            is PhoneAlertSseResult.NetworkError -> onUserModeConnectionFailed(result.message)
+            is PhoneAlertSseResult.ServerError -> onUserModeConnectionFailed("HTTP ${result.code}: ${result.message}")
+            is PhoneAlertSseResult.StreamError -> onUserModeConnectionFailed(result.message)
+        }
+    }
+
+    private suspend fun delayBeforeReconnectIfEnabled() {
+        if (screenState.value.userModeConnectionState.enabled) {
+            delay(reconnectDelayMs)
+        }
     }
 
     private fun onStreamStartFailed(

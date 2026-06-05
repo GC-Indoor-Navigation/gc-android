@@ -11,7 +11,14 @@ import com.gc.collector.model.UserAlertEventOutcome
 import com.gc.collector.model.UserModeConnectionStatus
 import com.gc.collector.network.GrpcEndpoint
 import com.gc.collector.network.InternalCalibrationUploadResult
+import com.gc.collector.network.PhoneAlertSseCallHandle
+import com.gc.collector.network.PhoneAlertSseConnector
+import com.gc.collector.network.PhoneAlertSseResult
 import com.gc.collector.network.SendResult
+import com.gc.collector.network.SseEvent
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -394,6 +401,81 @@ class CollectorViewModelTest {
         assertEquals(1L, state.duplicateCount)
     }
 
+    @Test
+    fun userModeStartWithServerConnectionProcessesSseAlertAndCancelsOnStop() {
+        val cancelled = AtomicBoolean(false)
+        val executed = CountDownLatch(1)
+        val connector = PhoneAlertSseConnector { baseUrl, deviceId, onEvent ->
+            assertEquals("http://localhost:8080", baseUrl)
+            assertEquals("android_device_001", deviceId)
+            Result.success(
+                object : PhoneAlertSseCallHandle {
+                    override fun execute(): PhoneAlertSseResult {
+                        onEvent(
+                            SseEvent(
+                                event = "processing_alert",
+                                data = sampleAlertPayload(eventId = "live-alert", severity = "danger"),
+                            ),
+                        )
+                        executed.countDown()
+                        while (!cancelled.get()) {
+                            Thread.sleep(5L)
+                        }
+                        return PhoneAlertSseResult.Cancelled
+                    }
+
+                    override fun cancel() {
+                        cancelled.set(true)
+                    }
+                },
+            )
+        }
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = connector,
+            currentTimeMs = { 1_780_624_971_101L },
+            reconnectDelayMs = 10L,
+        )
+
+        viewModel.onUserModeStartRequested(connectToServer = true)
+
+        assertTrue(executed.await(1, TimeUnit.SECONDS))
+        waitUntil {
+            viewModel.screenState.value.userAlertState.latestAlert?.eventId == "live-alert"
+        }
+        assertEquals(UserModeConnectionStatus.Connected, viewModel.screenState.value.userModeConnectionState.status)
+        assertEquals(ProcessingAlertSeverity.Danger, viewModel.screenState.value.userAlertState.latestAlert?.severity)
+
+        viewModel.onUserModeStopRequested()
+
+        waitUntil { !viewModel.screenState.value.userModeConnectionState.enabled }
+        assertTrue(cancelled.get())
+        assertEquals(UserModeConnectionStatus.Stopped, viewModel.screenState.value.userModeConnectionState.status)
+    }
+
+    @Test
+    fun userModeStartWithOpenFailureSchedulesReconnect() {
+        val connector = PhoneAlertSseConnector { _, _, _ ->
+            Result.failure(IllegalStateException("server unavailable"))
+        }
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = connector,
+            currentTimeMs = { 1_780_624_971_101L },
+            reconnectDelayMs = 10L,
+        )
+
+        viewModel.onUserModeStartRequested(connectToServer = true)
+
+        waitUntil {
+            viewModel.screenState.value.userModeConnectionState.reconnectCount > 0L
+        }
+        val state = viewModel.screenState.value.userModeConnectionState
+        assertTrue(state.enabled)
+        assertEquals(UserModeConnectionStatus.Reconnecting, state.status)
+        assertEquals("server unavailable", state.lastError)
+
+        viewModel.onUserModeStopRequested()
+    }
+
     private fun sampleFrame(
         frameSequence: Long,
         sensorTimestampNs: Long = 1_000L,
@@ -468,5 +550,19 @@ class CollectorViewModelTest {
               }
             }
         """.trimIndent()
+    }
+
+    private fun waitUntil(
+        timeoutMs: Long = 1_000L,
+        condition: () -> Boolean,
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) {
+                return
+            }
+            Thread.sleep(10L)
+        }
+        assertTrue("condition was not met before timeout", condition())
     }
 }

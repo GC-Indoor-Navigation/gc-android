@@ -10,14 +10,27 @@ import okio.BufferedSource
 private const val phoneAlertsPath = "/phone/alerts/events"
 private const val processingAlertEvent = "processing_alert"
 
-class PhoneAlertSseClient(
-    private val client: OkHttpClient = OkHttpClient(),
-) {
+fun interface PhoneAlertSseConnector {
     fun open(
         baseUrl: String,
         deviceId: String,
         onEvent: (SseEvent) -> Unit,
-    ): Result<PhoneAlertSseCall> {
+    ): Result<PhoneAlertSseCallHandle>
+}
+
+interface PhoneAlertSseCallHandle {
+    fun execute(): PhoneAlertSseResult
+    fun cancel()
+}
+
+class PhoneAlertSseClient(
+    private val client: OkHttpClient = OkHttpClient(),
+) : PhoneAlertSseConnector {
+    override fun open(
+        baseUrl: String,
+        deviceId: String,
+        onEvent: (SseEvent) -> Unit,
+    ): Result<PhoneAlertSseCallHandle> {
         val endpoint = parseHttpBaseUrl(baseUrl).getOrElse { error ->
             return Result.failure(error)
         }
@@ -34,8 +47,8 @@ class PhoneAlertSseClient(
 class PhoneAlertSseCall internal constructor(
     private val call: Call,
     private val onEvent: (SseEvent) -> Unit,
-) {
-    fun execute(): PhoneAlertSseResult {
+) : PhoneAlertSseCallHandle {
+    override fun execute(): PhoneAlertSseResult {
         return try {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
@@ -60,7 +73,7 @@ class PhoneAlertSseCall internal constructor(
         }
     }
 
-    fun cancel() {
+    override fun cancel() {
         call.cancel()
     }
 }
