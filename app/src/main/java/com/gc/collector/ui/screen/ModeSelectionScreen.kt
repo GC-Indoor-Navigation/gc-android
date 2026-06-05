@@ -45,7 +45,7 @@ fun ModeSelectionScreen(
         Spacer(modifier = Modifier.height(12.dp))
         ModeCard(
             title = "Use Mode",
-            description = "Runtime device mode for future collection workflows.",
+            description = "Receive processing alerts and trigger phone-side feedback.",
             onClick = onUseMode,
         )
     }

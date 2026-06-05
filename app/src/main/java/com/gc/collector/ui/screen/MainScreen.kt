@@ -132,8 +132,18 @@ fun MainScreen(
         }
 
         CollectorScreen.UseMode -> {
-            UseModePlaceholderScreen(
+            UseModeScreen(
                 modifier = modifier,
+                settings = uiState.settings,
+                connectionState = screenState.userModeConnectionState,
+                alertState = screenState.userAlertState,
+                onToggleUserMode = { enabled ->
+                    if (enabled) {
+                        collectorViewModel.onUserModeStartRequested()
+                    } else {
+                        collectorViewModel.onUserModeStopRequested()
+                    }
+                },
                 onBack = { currentScreenName = CollectorScreen.ModeSelection.name },
             )
             return
