@@ -1,11 +1,14 @@
 package com.gc.collector.ui.screen
 
 import com.gc.collector.camera.CapturedFrame
+import com.gc.collector.feedback.PhoneAlertFeedbackPlayer
 import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.FrameMetadata
+import com.gc.collector.model.PhoneAlertFeedbackPolicy
+import com.gc.collector.model.PhoneAlertFeedbackPolicyMapper
 import com.gc.collector.model.ProcessingAlertSeverity
 import com.gc.collector.model.UserAlertEventOutcome
 import com.gc.collector.model.UserModeConnectionStatus
@@ -17,6 +20,7 @@ import com.gc.collector.network.PhoneAlertSseResult
 import com.gc.collector.network.SendResult
 import com.gc.collector.network.SseEvent
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
@@ -474,6 +478,99 @@ class CollectorViewModelTest {
         assertEquals("server unavailable", state.lastError)
 
         viewModel.onUserModeStopRequested()
+    }
+
+    @Test
+    fun userModeFakeSseIntegrationAcceptsOnlyValidUniqueAlertsForFeedback() {
+        val cancelled = AtomicBoolean(false)
+        val executed = CountDownLatch(1)
+        val playedPolicies = CopyOnWriteArrayList<PhoneAlertFeedbackPolicy>()
+        val connector = PhoneAlertSseConnector { _, _, onEvent ->
+            Result.success(
+                object : PhoneAlertSseCallHandle {
+                    override fun execute(): PhoneAlertSseResult {
+                        onEvent(
+                            SseEvent(
+                                event = "processing_alert",
+                                data = sampleAlertPayload(eventId = "accepted-warning", severity = "warning"),
+                            ),
+                        )
+                        onEvent(
+                            SseEvent(
+                                event = "processing_alert",
+                                data = sampleAlertPayload(eventId = "accepted-warning", severity = "warning"),
+                            ),
+                        )
+                        onEvent(
+                            SseEvent(
+                                event = "processing_alert",
+                                data = sampleAlertPayload(eventId = "expired-danger", severity = "danger"),
+                            ),
+                        )
+                        onEvent(
+                            SseEvent(
+                                event = "processing_alert",
+                                data = sampleAlertPayload(eventId = "accepted-danger", severity = "danger"),
+                            ),
+                        )
+                        onEvent(
+                            SseEvent(
+                                event = "processing_alert",
+                                data = "{not-json",
+                            ),
+                        )
+                        executed.countDown()
+                        while (!cancelled.get()) {
+                            Thread.sleep(5L)
+                        }
+                        return PhoneAlertSseResult.Cancelled
+                    }
+
+                    override fun cancel() {
+                        cancelled.set(true)
+                    }
+                },
+            )
+        }
+        val now = 1_780_624_971_101L
+        val expiredNow = 1_780_624_971_103L
+        var timeCallCount = 0
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = connector,
+            phoneAlertFeedbackPlayer = PhoneAlertFeedbackPlayer { policy ->
+                playedPolicies += policy
+            },
+            currentTimeMs = {
+                timeCallCount += 1
+                if (timeCallCount == 4) expiredNow else now
+            },
+            reconnectDelayMs = 10L,
+        )
+
+        viewModel.onUserModeStartRequested(connectToServer = true)
+
+        assertTrue(executed.await(1, TimeUnit.SECONDS))
+        waitUntil {
+            viewModel.screenState.value.userAlertState.parseFailureCount == 1L
+        }
+
+        val alertState = viewModel.screenState.value.userAlertState
+        assertEquals("accepted-danger", alertState.latestAlert?.eventId)
+        assertEquals(2L, alertState.receivedCount)
+        assertEquals(1L, alertState.duplicateCount)
+        assertEquals(1L, alertState.expiredCount)
+        assertEquals(1L, alertState.parseFailureCount)
+        assertEquals(setOf("accepted-warning", "accepted-danger"), alertState.handledEventIds)
+        assertEquals(
+            listOf(
+                PhoneAlertFeedbackPolicyMapper.fromSeverity(ProcessingAlertSeverity.Warning),
+                PhoneAlertFeedbackPolicyMapper.fromSeverity(ProcessingAlertSeverity.Danger),
+            ),
+            playedPolicies,
+        )
+
+        viewModel.onUserModeStopRequested()
+        waitUntil { cancelled.get() }
     }
 
     private fun sampleFrame(

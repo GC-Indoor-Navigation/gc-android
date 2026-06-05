@@ -1,13 +1,17 @@
 package com.gc.collector.ui.screen
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gc.collector.camera.CapturedFrame
+import com.gc.collector.feedback.NoOpPhoneAlertFeedbackPlayer
+import com.gc.collector.feedback.PhoneAlertFeedbackPlayer
 import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CalibrationCaptureStateReducer
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CollectorUiState
+import com.gc.collector.model.PhoneAlertFeedbackPolicyMapper
 import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.StreamSessionState
@@ -36,11 +40,13 @@ import kotlinx.coroutines.launch
 
 class CollectorViewModel(
     private val phoneAlertSseConnector: PhoneAlertSseConnector,
+    private val phoneAlertFeedbackPlayer: PhoneAlertFeedbackPlayer = NoOpPhoneAlertFeedbackPlayer,
     private val currentTimeMs: () -> Long,
     private val reconnectDelayMs: Long,
 ) : ViewModel() {
     constructor() : this(
         phoneAlertSseConnector = PhoneAlertSseClient(),
+        phoneAlertFeedbackPlayer = NoOpPhoneAlertFeedbackPlayer,
         currentTimeMs = { System.currentTimeMillis() },
         reconnectDelayMs = 1_000L,
     )
@@ -320,7 +326,13 @@ class CollectorViewModel(
             outcome = reduced.second
             current.copy(userAlertState = reduced.first)
         }
-        return checkNotNull(outcome)
+        val resolvedOutcome = checkNotNull(outcome)
+        if (resolvedOutcome is UserAlertEventOutcome.Accepted) {
+            phoneAlertFeedbackPlayer.play(
+                PhoneAlertFeedbackPolicyMapper.fromSeverity(resolvedOutcome.alert.severity),
+            )
+        }
+        return resolvedOutcome
     }
 
     private fun startUserModeAlertLoop() {
@@ -398,6 +410,23 @@ class CollectorViewModel(
                 collectorUiState = nextState.uiState,
                 cameraCaptureUiState = current.cameraCaptureUiState.withNetworkStatus(nextState.networkStatus),
             )
+        }
+    }
+
+    class Factory(
+        private val phoneAlertFeedbackPlayer: PhoneAlertFeedbackPlayer,
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(CollectorViewModel::class.java)) {
+                return CollectorViewModel(
+                    phoneAlertSseConnector = PhoneAlertSseClient(),
+                    phoneAlertFeedbackPlayer = phoneAlertFeedbackPlayer,
+                    currentTimeMs = { System.currentTimeMillis() },
+                    reconnectDelayMs = 1_000L,
+                ) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
 }

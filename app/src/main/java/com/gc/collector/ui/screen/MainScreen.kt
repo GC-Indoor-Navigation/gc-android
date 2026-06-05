@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStoreOwner
+import com.gc.collector.feedback.AndroidPhoneAlertFeedbackPlayer
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
@@ -44,7 +45,12 @@ fun MainScreen(
     val collectorViewModel = providedCollectorViewModel ?: remember(context) {
         val owner = context as? ViewModelStoreOwner
         if (owner != null) {
-            ViewModelProvider(owner)[CollectorViewModel::class.java]
+            ViewModelProvider(
+                owner,
+                CollectorViewModel.Factory(
+                    phoneAlertFeedbackPlayer = AndroidPhoneAlertFeedbackPlayer(context.applicationContext),
+                ),
+            )[CollectorViewModel::class.java]
         } else {
             CollectorViewModel()
         }
