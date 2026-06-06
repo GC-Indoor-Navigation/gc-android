@@ -328,9 +328,19 @@ class CollectorViewModel(
         }
         val resolvedOutcome = checkNotNull(outcome)
         if (resolvedOutcome is UserAlertEventOutcome.Accepted) {
-            phoneAlertFeedbackPlayer.play(
-                PhoneAlertFeedbackPolicyMapper.fromSeverity(resolvedOutcome.alert.severity),
-            )
+            runCatching {
+                phoneAlertFeedbackPlayer.play(
+                    PhoneAlertFeedbackPolicyMapper.fromSeverity(resolvedOutcome.alert.severity),
+                )
+            }.onFailure { error ->
+                _screenState.update { current ->
+                    current.copy(
+                        userAlertState = current.userAlertState.copy(
+                            status = "Alert feedback failed: ${error.message ?: error::class.java.simpleName}",
+                        ),
+                    )
+                }
+            }
         }
         return resolvedOutcome
     }
@@ -342,16 +352,20 @@ class CollectorViewModel(
         userModeAlertJob = viewModelScope.launch(Dispatchers.IO) {
             while (screenState.value.userModeConnectionState.enabled) {
                 val settings = screenState.value.collectorUiState.settings
-                val callResult = phoneAlertSseConnector.open(
-                    baseUrl = settings.calibrationHttpBaseUrl,
-                    deviceId = settings.deviceId,
-                    onEvent = { event ->
-                        onUserModeAlertData(
-                            data = event.data,
-                            nowMs = currentTimeMs(),
-                        )
-                    },
-                )
+                val callResult = runCatching {
+                    phoneAlertSseConnector.open(
+                        baseUrl = settings.calibrationHttpBaseUrl,
+                        deviceId = settings.deviceId,
+                        onEvent = { event ->
+                            onUserModeAlertData(
+                                data = event.data,
+                                nowMs = currentTimeMs(),
+                            )
+                        },
+                    )
+                }.getOrElse { error ->
+                    Result.failure(error)
+                }
                 val call = callResult.getOrNull()
                 if (call == null) {
                     val error = callResult.exceptionOrNull()
@@ -362,7 +376,10 @@ class CollectorViewModel(
 
                 userModeAlertCall = call
                 onUserModeConnected(currentTimeMs())
-                val result = call.execute()
+                val result = runCatching { call.execute() }
+                    .getOrElse { error ->
+                        PhoneAlertSseResult.StreamError(error.message ?: error::class.java.simpleName)
+                    }
                 if (userModeAlertCall === call) {
                     userModeAlertCall = null
                 }

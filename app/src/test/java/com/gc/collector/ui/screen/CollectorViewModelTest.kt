@@ -481,6 +481,64 @@ class CollectorViewModelTest {
     }
 
     @Test
+    fun userModeExecuteFailureSchedulesReconnectWithoutCrash() {
+        val connector = PhoneAlertSseConnector { _, _, _ ->
+            Result.success(
+                object : PhoneAlertSseCallHandle {
+                    override fun execute(): PhoneAlertSseResult {
+                        throw SecurityException("network access denied")
+                    }
+
+                    override fun cancel() = Unit
+                },
+            )
+        }
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = connector,
+            currentTimeMs = { 1_780_624_971_101L },
+            reconnectDelayMs = 10L,
+        )
+
+        viewModel.onUserModeStartRequested(connectToServer = true)
+
+        waitUntil {
+            viewModel.screenState.value.userModeConnectionState.reconnectCount > 0L
+        }
+        val state = viewModel.screenState.value.userModeConnectionState
+        assertTrue(state.enabled)
+        assertEquals(UserModeConnectionStatus.Reconnecting, state.status)
+        assertEquals("network access denied", state.lastError)
+
+        viewModel.onUserModeStopRequested()
+    }
+
+    @Test
+    fun acceptedAlertFeedbackFailureDoesNotCrash() {
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = PhoneAlertSseConnector { _, _, _ ->
+                Result.failure(IllegalStateException("unused"))
+            },
+            phoneAlertFeedbackPlayer = PhoneAlertFeedbackPlayer {
+                throw SecurityException("vibration denied")
+            },
+            currentTimeMs = { 1_780_624_971_101L },
+            reconnectDelayMs = 10L,
+        )
+
+        val outcome = viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "feedback-error", severity = "danger"),
+            nowMs = 1_780_624_971_101L,
+        )
+
+        assertTrue(outcome is UserAlertEventOutcome.Accepted)
+        assertEquals(
+            "Alert feedback failed: vibration denied",
+            viewModel.screenState.value.userAlertState.status,
+        )
+        assertEquals("feedback-error", viewModel.screenState.value.userAlertState.latestAlert?.eventId)
+    }
+
+    @Test
     fun userModeFakeSseIntegrationAcceptsOnlyValidUniqueAlertsForFeedback() {
         val cancelled = AtomicBoolean(false)
         val executed = CountDownLatch(1)

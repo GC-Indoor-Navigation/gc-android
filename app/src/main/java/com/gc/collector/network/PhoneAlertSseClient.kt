@@ -68,7 +68,7 @@ class PhoneAlertSseCall internal constructor(
             } else {
                 PhoneAlertSseResult.NetworkError(error.message ?: error::class.java.simpleName)
             }
-        } catch (error: IllegalArgumentException) {
+        } catch (error: RuntimeException) {
             PhoneAlertSseResult.StreamError(error.message ?: error::class.java.simpleName)
         }
     }
