@@ -78,7 +78,11 @@ fun MainScreen(
     val settings = uiState.settings
 
     BackHandler(enabled = currentScreen == CollectorScreen.CameraSetup || currentScreen == CollectorScreen.UseMode) {
-        currentScreenName = CollectorScreen.ModeSelection.name
+        if (currentScreen == CollectorScreen.UseMode && screenState.userModeConnectionState.enabled) {
+            collectorViewModel.onUserModeStopRequested()
+        } else {
+            currentScreenName = CollectorScreen.ModeSelection.name
+        }
     }
 
     LaunchedEffect(Unit) {

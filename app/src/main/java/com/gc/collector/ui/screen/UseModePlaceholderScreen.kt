@@ -1,6 +1,7 @@
 package com.gc.collector.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -8,23 +9,34 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gc.collector.model.CameraCaptureSettings
+import com.gc.collector.model.ProcessingAlert
+import com.gc.collector.model.ProcessingAlertSeverity
 import com.gc.collector.model.UserAlertState
 import com.gc.collector.model.UserModeConnectionState
 import com.gc.collector.model.UserModeConnectionStatus
+import kotlinx.coroutines.delay
 
 @Composable
 fun UseModeScreen(
@@ -38,91 +50,166 @@ fun UseModeScreen(
     modifier: Modifier = Modifier,
 ) {
     val canStart = settings.calibrationHttpBaseUrl.isNotBlank() && settings.deviceId.isNotBlank()
-    val controlsEnabled = !connectionState.enabled
+    KeepScreenOn(enabled = connectionState.enabled)
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .safeDrawingPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Text(
-            text = "Use Mode",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        UserModeToggleSection(
+    if (connectionState.enabled) {
+        UserModeActiveScreen(
             connectionState = connectionState,
-            enabled = connectionState.enabled || canStart,
-            onToggleUserMode = onToggleUserMode,
+            alertState = alertState,
+            onStop = { onToggleUserMode(false) },
+            modifier = modifier,
         )
-        UserModeEndpointSection(
-            settings = settings,
-            enabled = controlsEnabled,
-            onHttpBaseUrlChange = onHttpBaseUrlChange,
-            onDeviceIdChange = onDeviceIdChange,
-        )
-        UserModeConnectionSection(connectionState = connectionState)
-        UserModeAlertSection(alertState = alertState)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        return
+    }
+
+    UserModeSetupScreen(
+        settings = settings,
+        canStart = canStart,
+        onHttpBaseUrlChange = onHttpBaseUrlChange,
+        onDeviceIdChange = onDeviceIdChange,
+        onStart = { onToggleUserMode(true) },
+        onBack = onBack,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun UserModeSetupScreen(
+    settings: CameraCaptureSettings,
+    canStart: Boolean,
+    onHttpBaseUrlChange: (String) -> Unit,
+    onDeviceIdChange: (String) -> Unit,
+    onStart: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            OutlinedButton(
-                onClick = onBack,
-                modifier = Modifier.weight(1f),
+            Text(
+                text = "Use Mode Setup",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            UserModeEndpointSection(
+                settings = settings,
+                enabled = true,
+                onHttpBaseUrlChange = onHttpBaseUrlChange,
+                onDeviceIdChange = onDeviceIdChange,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("Back")
-            }
-            Button(
-                onClick = { onToggleUserMode(!connectionState.enabled) },
-                enabled = connectionState.enabled || canStart,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(if (connectionState.enabled) "Stop" else "Start")
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Back")
+                }
+                Button(
+                    onClick = onStart,
+                    enabled = canStart,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Start")
+                }
             }
         }
     }
 }
 
 @Composable
-private fun UserModeToggleSection(
+private fun UserModeActiveScreen(
     connectionState: UserModeConnectionState,
-    enabled: Boolean,
-    onToggleUserMode: (Boolean) -> Unit,
+    alertState: UserAlertState,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(connectionState.enabled, alertState.latestAlert?.expiresAtMs) {
+        while (connectionState.enabled) {
+            nowMs = System.currentTimeMillis()
+            delay(500L)
+        }
+    }
+    val visualState = resolveUserModeActiveVisualState(
+        connectionState = connectionState,
+        latestAlert = alertState.latestAlert,
+        nowMs = nowMs,
+    )
+
     Surface(
-        tonalElevation = 1.dp,
-        shape = MaterialTheme.shapes.medium,
+        modifier = modifier.fillMaxSize(),
+        color = visualState.backgroundColor,
+        contentColor = visualState.contentColor,
     ) {
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Use Mode",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                UserModeStatusCircle(visualState = visualState)
+            }
+            Button(
+                onClick = onStop,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Stop")
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserModeStatusCircle(visualState: UserModeActiveVisualState) {
+    Surface(
+        modifier = Modifier.size(240.dp),
+        shape = CircleShape,
+        color = visualState.circleColor,
+        contentColor = visualState.circleContentColor,
+        tonalElevation = 4.dp,
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
         ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "Alert Listener",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
+                    text = visualState.label,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = connectionState.message,
+                    text = visualState.message,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(
-                checked = connectionState.enabled,
-                onCheckedChange = onToggleUserMode,
-                enabled = enabled,
-            )
         }
     }
 }
@@ -189,7 +276,9 @@ private fun UserModeSection(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 2.dp,
         shape = MaterialTheme.shapes.medium,
     ) {
         Column(
@@ -239,5 +328,94 @@ private fun UserModeConnectionStatus.displayName(): String {
         UserModeConnectionStatus.Reconnecting -> "reconnecting"
         UserModeConnectionStatus.Stopped -> "stopped"
         UserModeConnectionStatus.Error -> "error"
+    }
+}
+
+private data class UserModeActiveVisualState(
+    val label: String,
+    val message: String,
+    val backgroundColor: Color,
+    val contentColor: Color,
+    val circleColor: Color,
+    val circleContentColor: Color,
+)
+
+private fun resolveUserModeActiveVisualState(
+    connectionState: UserModeConnectionState,
+    latestAlert: ProcessingAlert?,
+    nowMs: Long,
+): UserModeActiveVisualState {
+    val activeAlert = latestAlert?.takeIf { alert -> !alert.isExpired(nowMs) }
+    return when (activeAlert?.severity) {
+        ProcessingAlertSeverity.Danger -> UserModeActiveVisualState(
+            label = "DANGER",
+            message = activeAlert.distanceM?.let { distance -> "%.2f m".format(distance) } ?: "Alert",
+            backgroundColor = Color(0xFF1B1B1B),
+            contentColor = Color.White,
+            circleColor = Color(0xFFD91E18),
+            circleContentColor = Color.White,
+        )
+
+        ProcessingAlertSeverity.Warning -> UserModeActiveVisualState(
+            label = "WARNING",
+            message = activeAlert.distanceM?.let { distance -> "%.2f m".format(distance) } ?: "Alert",
+            backgroundColor = Color(0xFF1B1B1B),
+            contentColor = Color.White,
+            circleColor = Color(0xFFD91E18),
+            circleContentColor = Color.White,
+        )
+
+        ProcessingAlertSeverity.Info -> UserModeActiveVisualState(
+            label = "ON",
+            message = "Listening",
+            backgroundColor = Color(0xFF1B1B1B),
+            contentColor = Color.White,
+            circleColor = Color(0xFF1E8E3E),
+            circleContentColor = Color.White,
+        )
+
+        null -> connectionState.toActiveVisualState()
+    }
+}
+
+private fun UserModeConnectionState.toActiveVisualState(): UserModeActiveVisualState {
+    return when (status) {
+        UserModeConnectionStatus.Connected -> UserModeActiveVisualState(
+            label = "ON",
+            message = "Listening",
+            backgroundColor = Color(0xFF1B1B1B),
+            contentColor = Color.White,
+            circleColor = Color(0xFF1E8E3E),
+            circleContentColor = Color.White,
+        )
+
+        UserModeConnectionStatus.Connecting,
+        UserModeConnectionStatus.Reconnecting -> UserModeActiveVisualState(
+            label = "WAIT",
+            message = "Connecting",
+            backgroundColor = Color(0xFF1B1B1B),
+            contentColor = Color.White,
+            circleColor = Color(0xFF6B7280),
+            circleContentColor = Color.White,
+        )
+
+        UserModeConnectionStatus.Error -> UserModeActiveVisualState(
+            label = "ERROR",
+            message = "Connection",
+            backgroundColor = Color(0xFF1B1B1B),
+            contentColor = Color.White,
+            circleColor = Color(0xFFB3261E),
+            circleContentColor = Color.White,
+        )
+
+        UserModeConnectionStatus.Idle,
+        UserModeConnectionStatus.Stopped -> UserModeActiveVisualState(
+            label = "OFF",
+            message = "Stopped",
+            backgroundColor = Color(0xFF1B1B1B),
+            contentColor = Color.White,
+            circleColor = Color(0xFF6B7280),
+            circleContentColor = Color.White,
+        )
     }
 }
