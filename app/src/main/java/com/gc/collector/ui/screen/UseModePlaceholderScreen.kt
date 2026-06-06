@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -30,10 +31,15 @@ fun UseModeScreen(
     settings: CameraCaptureSettings,
     connectionState: UserModeConnectionState,
     alertState: UserAlertState,
+    onHttpBaseUrlChange: (String) -> Unit,
+    onDeviceIdChange: (String) -> Unit,
     onToggleUserMode: (Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val canStart = settings.calibrationHttpBaseUrl.isNotBlank() && settings.deviceId.isNotBlank()
+    val controlsEnabled = !connectionState.enabled
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -49,9 +55,15 @@ fun UseModeScreen(
         )
         UserModeToggleSection(
             connectionState = connectionState,
+            enabled = connectionState.enabled || canStart,
             onToggleUserMode = onToggleUserMode,
         )
-        UserModeEndpointSection(settings = settings)
+        UserModeEndpointSection(
+            settings = settings,
+            enabled = controlsEnabled,
+            onHttpBaseUrlChange = onHttpBaseUrlChange,
+            onDeviceIdChange = onDeviceIdChange,
+        )
         UserModeConnectionSection(connectionState = connectionState)
         UserModeAlertSection(alertState = alertState)
         Row(
@@ -66,6 +78,7 @@ fun UseModeScreen(
             }
             Button(
                 onClick = { onToggleUserMode(!connectionState.enabled) },
+                enabled = connectionState.enabled || canStart,
                 modifier = Modifier.weight(1f),
             ) {
                 Text(if (connectionState.enabled) "Stop" else "Start")
@@ -77,6 +90,7 @@ fun UseModeScreen(
 @Composable
 private fun UserModeToggleSection(
     connectionState: UserModeConnectionState,
+    enabled: Boolean,
     onToggleUserMode: (Boolean) -> Unit,
 ) {
     Surface(
@@ -107,16 +121,36 @@ private fun UserModeToggleSection(
             Switch(
                 checked = connectionState.enabled,
                 onCheckedChange = onToggleUserMode,
+                enabled = enabled,
             )
         }
     }
 }
 
 @Composable
-private fun UserModeEndpointSection(settings: CameraCaptureSettings) {
+private fun UserModeEndpointSection(
+    settings: CameraCaptureSettings,
+    enabled: Boolean,
+    onHttpBaseUrlChange: (String) -> Unit,
+    onDeviceIdChange: (String) -> Unit,
+) {
     UserModeSection(title = "Endpoint") {
-        UserModeRow(label = "HTTP base URL", value = settings.calibrationHttpBaseUrl)
-        UserModeRow(label = "Device ID", value = settings.deviceId)
+        OutlinedTextField(
+            value = settings.calibrationHttpBaseUrl,
+            onValueChange = onHttpBaseUrlChange,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            singleLine = true,
+            label = { Text("Stream Server HTTP URL") },
+        )
+        OutlinedTextField(
+            value = settings.deviceId,
+            onValueChange = onDeviceIdChange,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            singleLine = true,
+            label = { Text("Device ID") },
+        )
         UserModeRow(label = "SSE path", value = "/phone/alerts/events")
     }
 }

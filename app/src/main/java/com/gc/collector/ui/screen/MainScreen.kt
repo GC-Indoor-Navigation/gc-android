@@ -143,6 +143,16 @@ fun MainScreen(
                 settings = uiState.settings,
                 connectionState = screenState.userModeConnectionState,
                 alertState = screenState.userAlertState,
+                onHttpBaseUrlChange = { value ->
+                    collectorViewModel.updateCollectorUiState { state ->
+                        state.copy(settings = state.settings.copy(calibrationHttpBaseUrl = value))
+                    }
+                },
+                onDeviceIdChange = { value ->
+                    collectorViewModel.updateCollectorUiState { state ->
+                        state.copy(settings = state.settings.copy(deviceId = value))
+                    }
+                },
                 onToggleUserMode = { enabled ->
                     if (enabled) {
                         collectorViewModel.onUserModeStartRequested(connectToServer = true)
