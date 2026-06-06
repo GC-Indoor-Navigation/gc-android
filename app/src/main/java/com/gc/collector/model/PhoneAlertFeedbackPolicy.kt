@@ -32,13 +32,13 @@ object PhoneAlertFeedbackPolicyMapper {
 
             ProcessingAlertSeverity.Warning -> PhoneAlertFeedbackPolicy(
                 vibrate = true,
-                vibrationPatternMs = longArrayOf(0L, 180L),
+                vibrationPatternMs = longArrayOf(0L, 450L),
                 playSound = false,
             )
 
             ProcessingAlertSeverity.Danger -> PhoneAlertFeedbackPolicy(
                 vibrate = true,
-                vibrationPatternMs = longArrayOf(0L, 220L, 120L, 320L),
+                vibrationPatternMs = longArrayOf(0L, 350L, 120L, 450L, 120L, 650L),
                 playSound = true,
             )
         }

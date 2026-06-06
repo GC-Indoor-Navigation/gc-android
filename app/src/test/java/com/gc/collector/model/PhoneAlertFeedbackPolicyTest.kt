@@ -21,7 +21,7 @@ class PhoneAlertFeedbackPolicyTest {
         val policy = PhoneAlertFeedbackPolicyMapper.fromSeverity(ProcessingAlertSeverity.Warning)
 
         assertTrue(policy.vibrate)
-        assertArrayEquals(longArrayOf(0L, 180L), policy.vibrationPatternMs)
+        assertArrayEquals(longArrayOf(0L, 450L), policy.vibrationPatternMs)
         assertFalse(policy.playSound)
     }
 
@@ -30,7 +30,7 @@ class PhoneAlertFeedbackPolicyTest {
         val policy = PhoneAlertFeedbackPolicyMapper.fromSeverity(ProcessingAlertSeverity.Danger)
 
         assertTrue(policy.vibrate)
-        assertArrayEquals(longArrayOf(0L, 220L, 120L, 320L), policy.vibrationPatternMs)
+        assertArrayEquals(longArrayOf(0L, 350L, 120L, 450L, 120L, 650L), policy.vibrationPatternMs)
         assertTrue(policy.playSound)
     }
 
