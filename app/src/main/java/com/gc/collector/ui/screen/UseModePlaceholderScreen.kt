@@ -56,7 +56,6 @@ fun UseModeScreen(
         UserModeActiveScreen(
             connectionState = connectionState,
             alertState = alertState,
-            onStop = { onToggleUserMode(false) },
             modifier = modifier,
         )
         return
@@ -133,7 +132,6 @@ private fun UserModeSetupScreen(
 private fun UserModeActiveScreen(
     connectionState: UserModeConnectionState,
     alertState: UserAlertState,
-    onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -160,7 +158,7 @@ private fun UserModeActiveScreen(
                 .safeDrawingPadding()
                 .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(
                 text = "Use Mode",
@@ -173,42 +171,54 @@ private fun UserModeActiveScreen(
             ) {
                 UserModeStatusCircle(visualState = visualState)
             }
-            Button(
-                onClick = onStop,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Stop")
-            }
         }
     }
 }
 
 @Composable
 private fun UserModeStatusCircle(visualState: UserModeActiveVisualState) {
-    Surface(
-        modifier = Modifier.size(240.dp),
-        shape = CircleShape,
-        color = visualState.circleColor,
-        contentColor = visualState.circleContentColor,
-        tonalElevation = 4.dp,
+    Box(
+        modifier = Modifier.size(320.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+        Surface(
+            modifier = Modifier.size(320.dp),
+            shape = CircleShape,
+            color = visualState.circleColor.copy(alpha = 0.14f),
+            contentColor = visualState.circleContentColor,
+        ) {}
+        Surface(
+            modifier = Modifier.size(280.dp),
+            shape = CircleShape,
+            color = visualState.circleColor.copy(alpha = 0.24f),
+            contentColor = visualState.circleContentColor,
+        ) {}
+        Surface(
+            modifier = Modifier.size(236.dp),
+            shape = CircleShape,
+            color = visualState.circleColor,
+            contentColor = visualState.circleContentColor,
+            tonalElevation = 6.dp,
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = visualState.label,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = visualState.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = visualState.label,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = visualState.message,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
         }
     }
@@ -350,8 +360,8 @@ private fun resolveUserModeActiveVisualState(
         ProcessingAlertSeverity.Danger -> UserModeActiveVisualState(
             label = "DANGER",
             message = activeAlert.distanceM?.let { distance -> "%.2f m".format(distance) } ?: "Alert",
-            backgroundColor = Color(0xFF1B1B1B),
-            contentColor = Color.White,
+            backgroundColor = Color.White,
+            contentColor = Color(0xFF1B1B1B),
             circleColor = Color(0xFFD91E18),
             circleContentColor = Color.White,
         )
@@ -359,8 +369,8 @@ private fun resolveUserModeActiveVisualState(
         ProcessingAlertSeverity.Warning -> UserModeActiveVisualState(
             label = "WARNING",
             message = activeAlert.distanceM?.let { distance -> "%.2f m".format(distance) } ?: "Alert",
-            backgroundColor = Color(0xFF1B1B1B),
-            contentColor = Color.White,
+            backgroundColor = Color.White,
+            contentColor = Color(0xFF1B1B1B),
             circleColor = Color(0xFFD91E18),
             circleContentColor = Color.White,
         )
@@ -368,8 +378,8 @@ private fun resolveUserModeActiveVisualState(
         ProcessingAlertSeverity.Info -> UserModeActiveVisualState(
             label = "ON",
             message = "Listening",
-            backgroundColor = Color(0xFF1B1B1B),
-            contentColor = Color.White,
+            backgroundColor = Color.White,
+            contentColor = Color(0xFF1B1B1B),
             circleColor = Color(0xFF1E8E3E),
             circleContentColor = Color.White,
         )
@@ -383,8 +393,8 @@ private fun UserModeConnectionState.toActiveVisualState(): UserModeActiveVisualS
         UserModeConnectionStatus.Connected -> UserModeActiveVisualState(
             label = "ON",
             message = "Listening",
-            backgroundColor = Color(0xFF1B1B1B),
-            contentColor = Color.White,
+            backgroundColor = Color.White,
+            contentColor = Color(0xFF1B1B1B),
             circleColor = Color(0xFF1E8E3E),
             circleContentColor = Color.White,
         )
@@ -393,8 +403,8 @@ private fun UserModeConnectionState.toActiveVisualState(): UserModeActiveVisualS
         UserModeConnectionStatus.Reconnecting -> UserModeActiveVisualState(
             label = "WAIT",
             message = "Connecting",
-            backgroundColor = Color(0xFF1B1B1B),
-            contentColor = Color.White,
+            backgroundColor = Color.White,
+            contentColor = Color(0xFF1B1B1B),
             circleColor = Color(0xFF6B7280),
             circleContentColor = Color.White,
         )
@@ -402,8 +412,8 @@ private fun UserModeConnectionState.toActiveVisualState(): UserModeActiveVisualS
         UserModeConnectionStatus.Error -> UserModeActiveVisualState(
             label = "ERROR",
             message = "Connection",
-            backgroundColor = Color(0xFF1B1B1B),
-            contentColor = Color.White,
+            backgroundColor = Color.White,
+            contentColor = Color(0xFF1B1B1B),
             circleColor = Color(0xFFB3261E),
             circleContentColor = Color.White,
         )
@@ -412,8 +422,8 @@ private fun UserModeConnectionState.toActiveVisualState(): UserModeActiveVisualS
         UserModeConnectionStatus.Stopped -> UserModeActiveVisualState(
             label = "OFF",
             message = "Stopped",
-            backgroundColor = Color(0xFF1B1B1B),
-            contentColor = Color.White,
+            backgroundColor = Color.White,
+            contentColor = Color(0xFF1B1B1B),
             circleColor = Color(0xFF6B7280),
             circleContentColor = Color.White,
         )
