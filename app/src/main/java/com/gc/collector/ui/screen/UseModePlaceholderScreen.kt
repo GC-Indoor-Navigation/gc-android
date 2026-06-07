@@ -158,15 +158,10 @@ private fun UserModeActiveScreen(
                 .safeDrawingPadding()
                 .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                text = "Use Mode",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
             Box(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
                 UserModeStatusCircle(visualState = visualState)
