@@ -135,6 +135,10 @@ private fun UserModeActiveScreen(
     modifier: Modifier = Modifier,
 ) {
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var latestAlertShownAtMs by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(alertState.latestAlert?.eventId) {
+        latestAlertShownAtMs = alertState.latestAlert?.let { System.currentTimeMillis() }
+    }
     LaunchedEffect(connectionState.enabled, alertState.latestAlert?.expiresAtMs) {
         while (connectionState.enabled) {
             nowMs = System.currentTimeMillis()
@@ -144,6 +148,7 @@ private fun UserModeActiveScreen(
     val visualState = resolveUserModeActiveVisualState(
         connectionState = connectionState,
         latestAlert = alertState.latestAlert,
+        latestAlertShownAtMs = latestAlertShownAtMs,
         nowMs = nowMs,
     )
 
@@ -348,9 +353,15 @@ private data class UserModeActiveVisualState(
 private fun resolveUserModeActiveVisualState(
     connectionState: UserModeConnectionState,
     latestAlert: ProcessingAlert?,
+    latestAlertShownAtMs: Long?,
     nowMs: Long,
 ): UserModeActiveVisualState {
-    val activeAlert = latestAlert?.takeIf { alert -> !alert.isExpired(nowMs) }
+    val activeAlert = latestAlert
+        ?.takeIf { alert -> !alert.isExpired(nowMs) }
+        ?.takeIf {
+            latestAlertShownAtMs != null &&
+                nowMs - latestAlertShownAtMs <= alertDisplayDurationMs
+        }
     return when (activeAlert?.severity) {
         ProcessingAlertSeverity.Danger -> UserModeActiveVisualState(
             label = "DANGER",
@@ -382,6 +393,8 @@ private fun resolveUserModeActiveVisualState(
         null -> connectionState.toActiveVisualState()
     }
 }
+
+private const val alertDisplayDurationMs = 3_000L
 
 private fun UserModeConnectionState.toActiveVisualState(): UserModeActiveVisualState {
     return when (status) {
