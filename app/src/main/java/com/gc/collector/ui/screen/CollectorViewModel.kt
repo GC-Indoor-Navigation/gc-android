@@ -5,13 +5,17 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gc.collector.camera.CapturedFrame
 import com.gc.collector.feedback.NoOpPhoneAlertFeedbackPlayer
+import com.gc.collector.feedback.NoOpPhoneAlertVoicePlayer
 import com.gc.collector.feedback.PhoneAlertFeedbackPlayer
+import com.gc.collector.feedback.PhoneAlertVoicePlayer
+import com.gc.collector.model.AlertVoiceMessageMapper
 import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CalibrationCaptureStateReducer
 import com.gc.collector.model.CalibrationUploadOutcome
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CollectorUiState
 import com.gc.collector.model.PhoneAlertFeedbackPolicyMapper
+import com.gc.collector.model.ProcessingAlert
 import com.gc.collector.model.RuntimeFrameCaptureStateReducer
 import com.gc.collector.model.SessionIdFactory
 import com.gc.collector.model.StreamSessionState
@@ -41,12 +45,14 @@ import kotlinx.coroutines.launch
 class CollectorViewModel(
     private val phoneAlertSseConnector: PhoneAlertSseConnector,
     private val phoneAlertFeedbackPlayer: PhoneAlertFeedbackPlayer = NoOpPhoneAlertFeedbackPlayer,
+    private val phoneAlertVoicePlayer: PhoneAlertVoicePlayer = NoOpPhoneAlertVoicePlayer,
     private val currentTimeMs: () -> Long,
     private val reconnectDelayMs: Long,
 ) : ViewModel() {
     constructor() : this(
         phoneAlertSseConnector = PhoneAlertSseClient(),
         phoneAlertFeedbackPlayer = NoOpPhoneAlertFeedbackPlayer,
+        phoneAlertVoicePlayer = NoOpPhoneAlertVoicePlayer,
         currentTimeMs = { System.currentTimeMillis() },
         reconnectDelayMs = 1_000L,
     )
@@ -57,6 +63,7 @@ class CollectorViewModel(
     private var runtimeFramesInWindow: Int = 0
     private var userModeAlertJob: Job? = null
     private var userModeAlertCall: PhoneAlertSseCallHandle? = null
+    private val lastVoiceFeedbackAtMsByKey = mutableMapOf<String, Long>()
 
     fun setCollectorUiState(state: CollectorUiState) {
         _screenState.update { current ->
@@ -341,8 +348,32 @@ class CollectorViewModel(
                     )
                 }
             }
+            speakAlertIfNeeded(resolvedOutcome.alert, nowMs)
         }
         return resolvedOutcome
+    }
+
+    private fun speakAlertIfNeeded(
+        alert: ProcessingAlert,
+        nowMs: Long,
+    ) {
+        val voiceMessage = AlertVoiceMessageMapper.fromAlert(alert) ?: return
+        val lastSpokenAtMs = lastVoiceFeedbackAtMsByKey[voiceMessage.key]
+        if (lastSpokenAtMs != null && nowMs - lastSpokenAtMs < alertVoiceThrottleMs) {
+            return
+        }
+        runCatching {
+            phoneAlertVoicePlayer.speak(voiceMessage.text)
+            lastVoiceFeedbackAtMsByKey[voiceMessage.key] = nowMs
+        }.onFailure { error ->
+            _screenState.update { current ->
+                current.copy(
+                    userAlertState = current.userAlertState.copy(
+                        status = "Alert voice failed: ${error.message ?: error::class.java.simpleName}",
+                    ),
+                )
+            }
+        }
     }
 
     private fun startUserModeAlertLoop() {
@@ -432,6 +463,7 @@ class CollectorViewModel(
 
     class Factory(
         private val phoneAlertFeedbackPlayer: PhoneAlertFeedbackPlayer,
+        private val phoneAlertVoicePlayer: PhoneAlertVoicePlayer,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -439,6 +471,7 @@ class CollectorViewModel(
                 return CollectorViewModel(
                     phoneAlertSseConnector = PhoneAlertSseClient(),
                     phoneAlertFeedbackPlayer = phoneAlertFeedbackPlayer,
+                    phoneAlertVoicePlayer = phoneAlertVoicePlayer,
                     currentTimeMs = { System.currentTimeMillis() },
                     reconnectDelayMs = 1_000L,
                 ) as T
@@ -447,3 +480,5 @@ class CollectorViewModel(
         }
     }
 }
+
+private const val alertVoiceThrottleMs = 3_000L

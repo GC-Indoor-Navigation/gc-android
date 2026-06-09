@@ -2,6 +2,7 @@ package com.gc.collector.ui.screen
 
 import com.gc.collector.camera.CapturedFrame
 import com.gc.collector.feedback.PhoneAlertFeedbackPlayer
+import com.gc.collector.feedback.PhoneAlertVoicePlayer
 import com.gc.collector.model.CameraCaptureUiState
 import com.gc.collector.model.CameraControlStatus
 import com.gc.collector.model.CalibrationUploadOutcome
@@ -539,6 +540,99 @@ class CollectorViewModelTest {
     }
 
     @Test
+    fun acceptedWarningAndDangerAlertsSpeakVoiceFeedback() {
+        val spokenMessages = CopyOnWriteArrayList<String>()
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = PhoneAlertSseConnector { _, _, _ ->
+                Result.failure(IllegalStateException("unused"))
+            },
+            phoneAlertVoicePlayer = PhoneAlertVoicePlayer { message ->
+                spokenMessages += message
+            },
+            currentTimeMs = { 1_780_624_971_101L },
+            reconnectDelayMs = 10L,
+        )
+
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-warning", severity = "warning", joint = "left_knee"),
+            nowMs = 1_000L,
+        )
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-danger", severity = "danger", joint = "pelvis"),
+            nowMs = 2_000L,
+        )
+
+        assertEquals(listOf("Warning. Left knee.", "Danger. Pelvis."), spokenMessages)
+    }
+
+    @Test
+    fun infoExpiredAndDuplicateAlertsDoNotSpeakVoiceFeedback() {
+        val spokenMessages = CopyOnWriteArrayList<String>()
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = PhoneAlertSseConnector { _, _, _ ->
+                Result.failure(IllegalStateException("unused"))
+            },
+            phoneAlertVoicePlayer = PhoneAlertVoicePlayer { message ->
+                spokenMessages += message
+            },
+            currentTimeMs = { 1_780_624_971_101L },
+            reconnectDelayMs = 10L,
+        )
+
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-info", severity = "info", joint = "pelvis"),
+            nowMs = 1_780_624_971_101L,
+        )
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-expired", severity = "danger", joint = "pelvis"),
+            nowMs = 1_780_624_971_103L,
+        )
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-info", severity = "info", joint = "pelvis"),
+            nowMs = 1_780_624_971_104L,
+        )
+
+        assertTrue(spokenMessages.isEmpty())
+    }
+
+    @Test
+    fun repeatedSameSeverityAndJointVoiceFeedbackIsThrottled() {
+        val spokenMessages = CopyOnWriteArrayList<String>()
+        val viewModel = CollectorViewModel(
+            phoneAlertSseConnector = PhoneAlertSseConnector { _, _, _ ->
+                Result.failure(IllegalStateException("unused"))
+            },
+            phoneAlertVoicePlayer = PhoneAlertVoicePlayer { message ->
+                spokenMessages += message
+            },
+            currentTimeMs = { 1_780_624_971_101L },
+            reconnectDelayMs = 10L,
+        )
+
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-1", severity = "warning", joint = "left_knee"),
+            nowMs = 1_000L,
+        )
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-2", severity = "warning", joint = "left_knee"),
+            nowMs = 2_000L,
+        )
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-3", severity = "warning", joint = "right_knee"),
+            nowMs = 2_100L,
+        )
+        viewModel.onUserModeAlertData(
+            data = sampleAlertPayload(eventId = "voice-4", severity = "warning", joint = "left_knee"),
+            nowMs = 4_100L,
+        )
+
+        assertEquals(
+            listOf("Warning. Left knee.", "Warning. Right knee.", "Warning. Left knee."),
+            spokenMessages,
+        )
+    }
+
+    @Test
     fun userModeFakeSseIntegrationAcceptsOnlyValidUniqueAlertsForFeedback() {
         val cancelled = AtomicBoolean(false)
         val executed = CountDownLatch(1)
@@ -680,7 +774,9 @@ class CollectorViewModelTest {
     private fun sampleAlertPayload(
         eventId: String,
         severity: String = "warning",
+        joint: String? = "pelvis",
     ): String {
+        val jointJson = joint?.let { "\"$it\"" } ?: "null"
         return """
             {
               "event_id": "$eventId",
@@ -689,7 +785,7 @@ class CollectorViewModelTest {
               "timestamp_ms": 1780624911102,
               "severity": "$severity",
               "distance_m": 0.62,
-              "joint": "pelvis",
+              "joint": $jointJson,
               "obstacle_id": "unknown",
               "ttl_ms": 60000,
               "source": {

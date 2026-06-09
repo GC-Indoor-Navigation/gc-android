@@ -26,12 +26,12 @@ class PhoneAlertFeedbackPolicyTest {
     }
 
     @Test
-    fun dangerUsesStrongerVibrationAndSound() {
+    fun dangerUsesStrongerVibrationOnly() {
         val policy = PhoneAlertFeedbackPolicyMapper.fromSeverity(ProcessingAlertSeverity.Danger)
 
         assertTrue(policy.vibrate)
-        assertArrayEquals(longArrayOf(0L, 350L, 120L, 450L, 120L, 650L), policy.vibrationPatternMs)
-        assertTrue(policy.playSound)
+        assertArrayEquals(longArrayOf(0L, 700L, 120L, 900L, 120L, 1_300L), policy.vibrationPatternMs)
+        assertFalse(policy.playSound)
     }
 
     @Test

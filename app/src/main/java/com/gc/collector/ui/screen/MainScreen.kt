@@ -22,6 +22,7 @@ import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStoreOwner
 import com.gc.collector.feedback.AndroidPhoneAlertFeedbackPlayer
+import com.gc.collector.feedback.AndroidPhoneAlertVoicePlayer
 import com.gc.collector.model.ResolutionOption
 import com.gc.collector.model.toAppliedState
 import com.gc.collector.ui.camera.loadBackCameraResolutionOptions
@@ -49,6 +50,7 @@ fun MainScreen(
                 owner,
                 CollectorViewModel.Factory(
                     phoneAlertFeedbackPlayer = AndroidPhoneAlertFeedbackPlayer(context.applicationContext),
+                    phoneAlertVoicePlayer = AndroidPhoneAlertVoicePlayer(context.applicationContext),
                 ),
             )[CollectorViewModel::class.java]
         } else {
